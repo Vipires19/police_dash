@@ -46,10 +46,10 @@ Centralizar, com rastreabilidade:
 ## Screenshots
 
 [Login](docs/screenshots/login.png)
-[Dashboard](docs/screenshots/dashboard.png)` |
-[Efetivo] |(docs/screenshots/efetivo.png) |
-[Viaturas](docs/screenshots/viaturas.png) |
-[Perfil](docs/screenshots/perfil.png) |
+[Dashboard](docs/screenshots/dashboard.png)
+[Efetivo] |(docs/screenshots/efetivo.png)
+[Viaturas](docs/screenshots/viaturas.png)
+[Perfil](docs/screenshots/perfil.png)
 
 ---
 
