@@ -47,7 +47,7 @@ Centralize, with traceability:
 
 [Login](docs/screenshots/login.png)
 [Dashboard](docs/screenshots/dashboard.png)
-[Roster] |(docs/screenshots/efetivo.png)
+[Roster](docs/screenshots/efetivo.png)
 [Vehicles](docs/screenshots/viaturas.png)
 [Profile](docs/screenshots/perfil.png)
 
