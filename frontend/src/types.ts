@@ -23,6 +23,13 @@ export const STAFF_EDITOR_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD"];
 
 export const APPROVER_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD"];
 
+export const COMPENSATION_CREATOR_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL"];
+
 export function isStaffEditor(role: Role): boolean {
   return STAFF_EDITOR_ROLES.includes(role);
+}
+
+export function canRegisterCompensationRole(role: Role): boolean {
+  if (role === "ESTAGIO") return false;
+  return COMPENSATION_CREATOR_ROLES.includes(role);
 }

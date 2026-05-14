@@ -38,3 +38,22 @@ export function ApproverRoute({ children }: { children: ReactNode }) {
 
   return children;
 }
+
+/** Central de aprovações: aprovadores ou quem registra eventos de compensação (ex.: BRACAL). */
+export function ApprovalHubRoute({ children }: { children: ReactNode }) {
+  const { isApprover, canRegisterCompensation, loading, user } = useAuth();
+
+  if (loading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-zinc-950 text-zinc-400">
+        Carregando…
+      </div>
+    );
+  }
+
+  if (!isApprover && !canRegisterCompensation) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return children;
+}

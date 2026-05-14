@@ -11,6 +11,10 @@ security = HTTPBearer()
 
 APPROVER_ROLES = {UserRole.ADMIN, UserRole.N90, UserRole.TAT_CMD}
 
+# Criação de eventos de compensação: efetivo operacional (BRACAL) + comando; não inclui ESTAGIO.
+# Aprovar/indeferir pendências: apenas APPROVER_ROLES (acima).
+COMPENSATION_CREATOR_ROLES = {UserRole.ADMIN, UserRole.N90, UserRole.TAT_CMD, UserRole.BRACAL}
+
 STAFF_EDITOR_ROLES = APPROVER_ROLES
 
 
@@ -78,5 +82,19 @@ def require_vehicle_editor(current: User = Depends(get_current_approved_user)) -
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sem permissão para criar ou alterar viaturas",
+        )
+    return current
+
+
+def require_compensation_creator(current: User = Depends(get_current_approved_user)) -> User:
+    if current.role == UserRole.ESTAGIO:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem permissão: estagiários não registram eventos de compensação",
+        )
+    if current.role not in COMPENSATION_CREATOR_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem permissão para registrar eventos de compensação",
         )
     return current

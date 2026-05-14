@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  CalendarDays,
   ClipboardList,
   LayoutDashboard,
   Menu,
@@ -17,7 +18,7 @@ const linkBase =
   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-wide transition-colors";
 
 export function OperationalLayout({ children }: { children: ReactNode }) {
-  const { user, logout, isApprover } = useAuth();
+  const { user, logout, isApprover, canRegisterCompensation } = useAuth();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -38,10 +39,11 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/efetivo", label: "Efetivo", icon: Users },
     { to: "/viaturas", label: "Viaturas", icon: Truck },
+    { to: "/folgas", label: "Folgas", icon: CalendarDays },
     { to: "/perfil", label: "Perfil", icon: UserCircle },
   ];
 
-  if (isApprover) {
+  if (isApprover || canRegisterCompensation) {
     items.push({ to: "/admin/pending-users", label: "Aprovações", icon: ClipboardList });
   }
 

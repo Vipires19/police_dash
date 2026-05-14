@@ -12,6 +12,12 @@ from core.config import settings
 from database.base import Base
 from models.user import User  # noqa: F401
 from models.vehicle import Vehicle, VehicleLog  # noqa: F401
+from models.compensations import (  # noqa: F401
+    CompensationEvent,
+    CompensationEventParticipant,
+    UserCompensation,
+)
+from models.leaves import LeaveApprovalLog, LeaveRequest  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

@@ -6,6 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from database.session import SessionLocal
 from routes import auth as auth_routes
+from routes import compensations as compensations_routes
+from routes import leaves as leaves_routes
 from routes import users as users_routes
 from routes import vehicles as vehicles_routes
 from services.user_service import ensure_bootstrap_admin
@@ -42,6 +44,8 @@ app.add_middleware(
 app.include_router(auth_routes.router)
 app.include_router(users_routes.router)
 app.include_router(vehicles_routes.router)
+app.include_router(leaves_routes.router)
+app.include_router(compensations_routes.router)
 
 
 @app.get("/health")

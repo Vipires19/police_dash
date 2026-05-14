@@ -8,7 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import type { User } from "@/types";
-import { APPROVER_ROLES } from "@/types";
+import { APPROVER_ROLES, canRegisterCompensationRole } from "@/types";
 import * as authApi from "@/services/authApi";
 import { ApiError } from "@/services/api";
 
@@ -21,6 +21,7 @@ interface AuthState {
 
 interface AuthContextValue extends AuthState {
   isApprover: boolean;
+  canRegisterCompensation: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   register: (payload: authApi.RegisterPayload) => Promise<void>;
@@ -90,6 +91,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [user],
   );
 
+  const canRegisterCompensation = useMemo(
+    () => (user ? canRegisterCompensationRole(user.role) : false),
+    [user],
+  );
+
   const value = useMemo(
     () => ({
       token,
@@ -97,12 +103,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       error,
       isApprover,
+      canRegisterCompensation,
       login,
       logout,
       register,
       refreshUser,
     }),
-    [token, user, loading, error, isApprover, login, logout, register, refreshUser],
+    [token, user, loading, error, isApprover, canRegisterCompensation, login, logout, register, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
