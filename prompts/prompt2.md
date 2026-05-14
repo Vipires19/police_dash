@@ -132,7 +132,9 @@ Tipo sanguíneo
 Patente
 Role do sistema
 Status ativo/inativo
-3. Organização hierárquica do efetivo
+```
+
+### 3. Organização hierárquica do efetivo
 
 O sistema deve:
 
@@ -175,7 +177,8 @@ A organização deve funcionar assim:
 
 Separação automática por patente
 Ordenação manual dentro da patente
-4. Perfil do policial
+
+### 4. Perfil do policial
 
 Criar tela:
 
@@ -193,7 +196,9 @@ Tipo sanguíneo
 Patente
 Role
 Status ativo/inativo
-5) Regras de permissão
+---
+
+## 5) Regras de permissão
 
 RBAC atual:
 
@@ -229,7 +234,9 @@ editar qualquer perfil
 alterar status ativo/inativo
 reorganizar efetivo
 alterar display_order
-6) Banco de dados
+---
+
+## 6) Banco de dados
 
 Atualizar model User.
 
@@ -250,7 +257,10 @@ IMPORTANTE:
 Não quebrar migrations existentes
 Criar nova migration Alembic corretamente
 Não recriar ENUMs PostgreSQL desnecessariamente
-7) UI/UX obrigatória
+
+---
+
+## 7) UI/UX obrigatória
 
 Efetivo:
 
@@ -268,7 +278,10 @@ Sidebar:
 Visual clean
 Ícones discretos
 Navegação fluida
-8) Dependências
+
+---
+
+## 8) Dependências
 
 Adicionar apenas se necessário.
 
@@ -281,7 +294,10 @@ Evitar:
 
 bibliotecas pesadas
 excesso de abstrações
-9) Estrutura e qualidade
+
+---
+
+## 9) Estrutura e qualidade
 
 Regras:
 
@@ -293,7 +309,10 @@ Sem overengineering
 Tipagem forte TypeScript
 Hooks organizados
 Services organizados
-10) Pensar passo a passo internamente
+
+---
+
+## 10) Pensar passo a passo internamente
 
 Pense passo a passo internamente para evitar:
 
@@ -307,7 +326,9 @@ quebra de autenticação
 NÃO mostre raciocínio.
 Mostre apenas o resultado final.
 
-11) Formatação obrigatória da saída
+---
+
+## 11) Formatação obrigatória da saída
 
 Responda EXATAMENTE nesta ordem:
 

@@ -90,7 +90,9 @@ As viaturas devem ser exibidas separadamente por modalidade:
 
 Força Tática (FT)
 ROCAM
-5) Estrutura das viaturas
+```
+
+## 5) Estrutura das viaturas
 
 Criar model:
 
@@ -113,7 +115,8 @@ Regras:
 
 placa UNIQUE
 prefixo UNIQUE
-6) ENUMs
+
+## 6) ENUMs
 
 Criar ENUM para:
 
@@ -139,7 +142,8 @@ IMPORTANTE:
 
 Evitar recriação duplicada de ENUMs PostgreSQL
 Aplicar boas práticas SQLAlchemy + PostgreSQL
-7) Logs operacionais
+
+## 7) Logs operacionais
 
 Criar model:
 
@@ -170,7 +174,8 @@ CREATED
 STATUS_CHANGED
 RETURNED
 UPDATED
-8) Regras operacionais
+
+## 8) Regras operacionais
 
 Ao cadastrar nova viatura:
 
@@ -200,7 +205,8 @@ salvar:
 quem retornou
 data
 status atualizado
-9) Regras de permissão
+
+## 9) Regras de permissão
 
 RBAC atual:
 
@@ -223,13 +229,14 @@ IMPORTANTE:
 
 ESTAGIO NÃO pode editar status
 ESTAGIO NÃO pode criar viatura
-10) Página de viaturas
+
+## 10) Página de viaturas
 
 Criar UI moderna operacional.
 
 A página deve conter:
 
-1. Listagem de viaturas
+### 1. Listagem de viaturas
 
 Separar visualmente:
 
@@ -241,7 +248,7 @@ Exemplo:
 [I-03028]
 Modelo: Trailblazer
 Status: OPERANDO
-2. Status visual
+### 2. Status visual
 
 Usar badges:
 
@@ -249,7 +256,7 @@ verde → OPERANDO
 vermelho → BAIXADA
 amarelo → MANUTENCAO
 cinza → RESERVA
-3. Adicionar viatura
+### 3. Adicionar viatura
 
 Modal ou drawer moderno contendo:
 
@@ -258,7 +265,7 @@ prefixo
 modelo
 modalidade
 status inicial
-4. Editar viatura
+### 4. Editar viatura
 
 Selecionar:
 
@@ -268,7 +275,7 @@ motivo
 Ao salvar:
 
 gerar log automaticamente
-5. Histórico da viatura
+### 5. Histórico da viatura
 
 Ao clicar na viatura:
 
@@ -285,7 +292,8 @@ Exemplo:
 13/05/2026 - Nova viatura cadastrada
 13/05/2026 - Baixada por SD Pires
 14/05/2026 - Retornou à operação
-11) Dashboard operacional
+
+## 11) Dashboard operacional
 
 Atualizar dashboard inicial.
 
@@ -309,7 +317,8 @@ logs ordenados por data desc
 visual clean operacional
 responsivo
 sem poluição visual
-12) Backend
+
+## 12) Backend
 
 Criar:
 
@@ -325,7 +334,8 @@ Rotas mínimas:
 /vehicles/{id}
 /vehicles/{id}/status
 /vehicles/{id}/logs
-13) Frontend
+
+## 13) Frontend
 
 Criar:
 
@@ -335,7 +345,8 @@ modais/drawers
 services API
 hooks
 componentes reutilizáveis
-14) UI/UX obrigatória
+
+## 14) UI/UX obrigatória
 
 Visual:
 
@@ -350,7 +361,8 @@ NÃO usar:
 visual genérico de SaaS
 excesso de cores vibrantes
 tabelas feias padrão
-15) Estrutura e qualidade
+
+## 15) Estrutura e qualidade
 
 Regras:
 
@@ -361,7 +373,8 @@ Sem overengineering
 Separação correta frontend/backend
 Sem duplicação
 Sem gambiarra
-16) Pensar passo a passo internamente
+
+## 16) Pensar passo a passo internamente
 
 Pense passo a passo internamente para evitar:
 
@@ -376,7 +389,7 @@ problemas de responsividade
 NÃO mostre raciocínio.
 Mostre apenas o resultado final.
 
-17) Formatação obrigatória da saída
+## 17) Formatação obrigatória da saída
 
 Responda EXATAMENTE nesta ordem:
 

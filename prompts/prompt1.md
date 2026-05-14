@@ -217,7 +217,10 @@ Frontend organizado em:
 /services
 /hooks
 /layouts
-6) Pensar passo a passo internamente
+```
+---
+
+## 6) Pensar passo a passo internamente
 
 Pense passo a passo internamente para evitar:
 
@@ -231,7 +234,9 @@ problemas de migrations
 NÃO mostre seu raciocínio.
 Mostre apenas o resultado final.
 
-7) Formatação obrigatória da saída
+---
+
+## 7) Formatação obrigatória da saída
 
 Responda EXATAMENTE nesta ordem:
 
