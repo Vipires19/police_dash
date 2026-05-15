@@ -3,7 +3,7 @@
 # Pelotão System
 
 **Sistema operacional web para gestão interna de pelotão policial**  
-Força Tática / ROCAM · efetivo · perfis · viaturas · logs
+Força Tática / ROCAM · efetivo · perfis · viaturas · folgas e compensações · logs
 
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev/)
@@ -21,7 +21,7 @@ Força Tática / ROCAM · efetivo · perfis · viaturas · logs
 
 ## Descrição
 
-O **Pelotão System** é uma aplicação **full-stack** pensada para uso interno: autenticação **JWT**, cadastro com **aprovação por perfil de comando**, **RBAC** granular, painel operacional, **efetivo** com ordenação por patente e **drag-and-drop** de antiguidade (persistido), **perfis policiais** detalhados, módulo de **viaturas** (FT e ROCAM) com **histórico e logs operacionais** automáticos, e **dashboard** com feed dos últimos eventos de frota.
+O **Pelotão System** é uma aplicação **full-stack** pensada para uso interno: autenticação **JWT**, cadastro com **aprovação por perfil de comando**, **RBAC** granular, painel operacional, **efetivo** com ordenação por patente e **drag-and-drop** de antiguidade (persistido), **perfis policiais** detalhados, módulo de **viaturas** (FT e ROCAM) com **histórico e logs operacionais** automáticos, módulo operacional de **folgas e compensações** (calendário mensal, solicitações, fila de review, créditos de compensação) e **dashboard** com feed de frota e indicadores de folga — inclusive **dias críticos** para o comando.
 
 Interface em **tema escuro** (operacional), **sidebar responsiva** (menu hamburger no mobile) e empacotamento via **Docker**.
 
@@ -39,6 +39,7 @@ Centralizar, com rastreabilidade:
 
 - quem está no efetivo, em que ordem hierárquica e com quais dados cadastrais;
 - estado das viaturas (operando, baixada, manutenção, reserva) e **quem** alterou **o quê** e **por quê**;
+- folgas mensais e compensações, com aprovação do comando e trilha de auditoria;
 - acesso condicionado ao **papel** do policial no sistema (não confundir **patente** institucional com **role** de aplicação).
 
 ---
@@ -98,26 +99,26 @@ Centralizar, com rastreabilidade:
 ```text
 pelotao-system/
 ├── backend/
-│   ├── alembic/              # env.py + versions (001…003)
+│   ├── alembic/              # env.py + versions (001…005)
 │   ├── auth/                 # JWT, deps, senha
-│   ├── core/                 # config, ranks (ordem de patentes)
+│   ├── core/                 # config, ranks, janela de folgas, rótulos de compensação
 │   ├── database/             # Base, session
-│   ├── models/               # User, Vehicle, VehicleLog
-│   ├── routes/               # auth, users, vehicles
-│   ├── schemas/              # Pydantic
-│   ├── services/             # regras de negócio
+│   ├── models/               # User, Vehicle, VehicleLog, LeaveRequest, CompensationEvent, …
+│   ├── routes/               # auth, users, vehicles, leaves, compensations
+│   ├── schemas/              # Pydantic (users, vehicles, leaves, compensations)
+│   ├── services/             # user, vehicle, leave, compensation services
 │   ├── main.py
 │   ├── requirements.txt
 │   └── docker-entrypoint.sh
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # ProtectedRoute, SortablePoliceRow, vehicle/…
+│   │   ├── components/       # ProtectedRoute, SortablePoliceRow, vehicle/, folgas/…
 │   │   ├── constants/        # ranks.ts
 │   │   ├── hooks/            # AuthContext
 │   │   ├── layouts/          # OperationalLayout (sidebar)
-│   │   ├── pages/            # Login, Register, Dashboard, Efetivo, Viaturas, Perfil, PendingUsers
-│   │   ├── services/         # api, authApi, usersApi, vehiclesApi
-│   │   └── types.ts + types/vehicle.ts
+│   │   ├── pages/            # Login, Register, Dashboard, Efetivo, Viaturas, Folgas, Perfil, PendingUsers
+│   │   ├── services/         # api, authApi, usersApi, vehiclesApi, leavesApi, compensationsApi
+│   │   └── types.ts + types/vehicle.ts + types/leaves.ts
 │   ├── package.json
 │   └── nginx.conf            # usado no estágio nginx do Dockerfile
 ├── docker/
@@ -142,10 +143,11 @@ pelotao-system/
 | Aprovação | Lista de pendentes, aprovar com **role** obrigatório ou rejeitar (`ADMIN`, `N90`, `TAT_CMD`). |
 | Bootstrap admin | Se `ADMIN_EMAIL` e `ADMIN_PASSWORD` estiverem definidos no `.env`, cria admin na subida (se e-mail não existir). |
 | Dashboard | Boas-vindas + **últimos logs de viaturas** (`GET /vehicles/recent-logs`). |
-| Layout | Sidebar com Dashboard, Efetivo, Viaturas, Perfil + **Aprovações** (só aprovadores). |
+| Layout | Sidebar com Dashboard, Efetivo, Viaturas, **Folgas**, Perfil + **Aprovações** (comando e quem registra compensação). |
 | Efetivo | Lista aprovados, agrupados por patente; **DnD** por patente (comando); `display_order` persistido. |
 | Perfil | Dados operacionais (nome completo, RE, endereço, etc.); edição conforme RBAC. |
 | Viaturas | Listagem **FT** / **ROCAM**; criar/editar status (com motivo); timeline de logs por viatura; feed global. |
+| Folgas e compensações | **Calendário operacional** mensal (`/folgas`); solicitação de folga mensal ou por crédito; status **REVIEW** automático ao estourar limites; hub **Aprovações** (cadastros, folgas pendentes, compensações pendentes); registro e consumo de créditos. |
 | Saúde | `GET /health` |
 
 ---
@@ -157,15 +159,16 @@ pelotao-system/
 | **ADMIN** | Acesso total às operações de aprovação, efetivo (reorder + perfis + `is_active`), viaturas (CRUD + status). |
 | **N90** | Idem aprovador / staff de efetivo / viaturas. |
 | **TAT_CMD** | Idem. |
-| **BRACAL** | Edita **próprio** perfil; **não** altera `is_active`; pode **criar/alterar viaturas** e status; **não** reordena efetivo nem aprova cadastros. |
-| **ESTAGIO** | Edita **próprio** perfil; **somente leitura** em viaturas (sem criar/alterar status); **não** reordena efetivo. |
+| **BRACAL** | Edita **próprio** perfil; **não** altera `is_active`; pode **criar/alterar viaturas** e status; pode **registrar eventos de compensação** (ficam pendentes até o comando); **não** reordena efetivo nem aprova cadastros/folgas/compensações. |
+| **ESTAGIO** | Edita **próprio** perfil; **somente leitura** em viaturas; pode **solicitar folgas**; **não** registra compensações; **não** reordena efetivo. |
 
 > **Patente** (campo textual do policial) ≠ **role** (enum de aplicação).
 
 Dependências principais no backend:
 
-- `require_approver` / `STAFF_EDITOR_ROLES` → aprovações + `PUT /users/efetivo/reorder` + edição ampla de perfil.
+- `require_approver` / `STAFF_EDITOR_ROLES` → cadastros, folgas/compensações pendentes, `PUT /users/efetivo/reorder`, edição ampla de perfil.
 - `require_vehicle_editor` (`VEHICLE_EDITOR_ROLES`) → `POST/PATCH` em `/vehicles`.
+- `require_compensation_creator` (`COMPENSATION_CREATOR_ROLES`, exceto `ESTAGIO`) → `POST /compensations`.
 
 ---
 
@@ -193,7 +196,14 @@ Campos relevantes: `email` (único), `hashed_password`, `patente`, `nome_guerra`
 - **Viatura**: `placa` e `prefixo` **únicos**, `modelo`, `modalidade` (`FT` \| `ROCAM`), `status` (`OPERANDO` \| `BAIXADA` \| `MANUTENCAO` \| `RESERVA`), `baixada_at`, `retorno_operacao_at`, timestamps.  
 - **Log**: `vehicle_id`, `user_id`, `action_type` (`CREATED`, `STATUS_CHANGED`, `RETURNED`, `UPDATED`), `description`, `motivo`, `old_status`, `new_status`, `created_at`.
 
-Migrations Alembic: `001_initial` (users + ENUMs usuário), `002_profile` (campos de perfil + ordem), `003_vehicles` (ENUMs frota + tabelas).
+Migrations Alembic: `001_initial` (users + ENUMs usuário), `002_profile` (campos de perfil + ordem), `003_vehicles` (ENUMs frota + tabelas), `004_leaves_compensations`, `005_user_compensation_display_label`.
+
+### Folgas / compensações
+
+- **`leave_requests`**: `leave_on`, `leave_type` (`MONTHLY` \| `COMPENSATION`), `user_compensation_id` opcional, `status` (`PENDING` \| `REVIEW` \| `APPROVED` \| `REJECTED` \| `CANCELLED`), `review_reason`, campos de decisão, timestamps.  
+- **`leave_approval_logs`**: auditoria por solicitação (`action`, `from_status` / `to_status`, `motivo`, `details`, `actor_id`).  
+- **`compensation_events`** + **`compensation_event_participants`**: evento operacional (`CPJ_SUPPORT`, `WEAPON_OCCURRENCE`, etc.) com `PENDING` / `APPROVED` / `REJECTED`.  
+- **`user_compensations`**: crédito por policial (`AVAILABLE` \| `USED`), `display_label`, vínculo ao evento e à folga que consumiu o crédito.
 
 ---
 
@@ -215,15 +225,27 @@ Migrations Alembic: `001_initial` (users + ENUMs usuário), `002_profile` (campo
 
 ## Logs operacionais
 
-- Gerados no **service** ao criar viatura, alterar dados (`UPDATED`) ou status (`STATUS_CHANGED` / `RETURNED` quando retorno operacional a partir de `BAIXADA` ou `MANUTENCAO`).  
-- Feed agregado: `GET /vehicles/recent-logs?limit=…` (usado no dashboard).
+- **Viaturas**: gerados no **service** ao criar/alterar viatura ou status; feed em `GET /vehicles/recent-logs?limit=…`.  
+- **Folgas**: cada criação/aprovação/indeferimento/cancelamento grava em `leave_approval_logs` (ator, transição de status, motivo).
+
+---
+
+## Módulo de folgas e compensações
+
+- **Calendário** (`GET /leaves/calendar`): visão mensal; entradas ordenadas por prioridade operacional — **folga mensal antes de folga por compensação**, depois `display_order` do efetivo, depois `nome_guerra`. Dias com **≥4** solicitações ativas são **críticos** (resumo no dashboard para o comando).  
+- **Solicitação** (`POST /leaves/request`): folga mensal ou folga vinculada a crédito **AVAILABLE**; janela em `core/leave_booking_policy.py` (mês corrente; mês seguinte liberado a partir do dia **25**).  
+- **Review operacional**: acima de **2** folgas/mês por policial ou **>4** policiais no mesmo dia → status **`REVIEW`** com `review_reason` (comando decide aprovar ou indeferir).  
+- **Compensações**: `POST /compensations` registra evento com participantes; na aprovação, gera créditos; crédito é consumido ao agendar folga `COMPENSATION`.  
+- **Aprovações**: comando (`ADMIN` / `N90` / `TAT_CMD`) — `PATCH /leaves/{id}/approve|reject`, `PATCH /compensations/{id}/approve|reject`; policial cancela a própria solicitação pendente/review com `PATCH /leaves/{id}/cancel`.  
+- Front: `/folgas` (calendário + modal); `/admin/pending-users` com abas *Cadastros*, *Folgas pendentes*, *Compensações pendentes*.
 
 ---
 
 ## Dashboard operacional
 
 - Rota front: `/dashboard`.  
-- Além do texto institucional, lista **últimos registros** de frota com ícone discreto por tipo de evento.
+- **Frota**: últimos registros com ícone por tipo de evento.  
+- **Folgas**: cards de pendências do policial; para o comando — filas de folgas/compensações e alerta de **dias com efetivo crítico** (≥4 policiais de folga no mês).
 
 ---
 
@@ -259,6 +281,27 @@ Migrations Alembic: `001_initial` (users + ENUMs usuário), `002_profile` (campo
 | PATCH | `/vehicles/{vehicle_id}` | Editor de frota. |
 | PATCH | `/vehicles/{vehicle_id}/status` | Editor de frota (+ log). |
 | GET | `/vehicles/{vehicle_id}/logs` | Histórico. |
+
+### Folgas — prefixo `/leaves`
+
+| Método | Caminho | Auth / nota |
+|--------|---------|---------------|
+| GET | `/leaves/calendar` | Aprovado ativo (`year`, `month` query). |
+| GET | `/leaves/pending` | Aprovador. |
+| POST | `/leaves/request` | Aprovado ativo. |
+| PATCH | `/leaves/{leave_id}/approve` | Aprovador. |
+| PATCH | `/leaves/{leave_id}/reject` | Aprovador. |
+| PATCH | `/leaves/{leave_id}/cancel` | Dono (pendente/review). |
+
+### Compensações — prefixo `/compensations`
+
+| Método | Caminho | Auth / nota |
+|--------|---------|---------------|
+| GET | `/compensations/pending` | Aprovador. |
+| GET | `/compensations/available` | Aprovado ativo (créditos próprios). |
+| POST | `/compensations/` | Criador de compensação (não `ESTAGIO`). |
+| PATCH | `/compensations/{event_id}/approve` | Aprovador. |
+| PATCH | `/compensations/{event_id}/reject` | Aprovador. |
 
 ### Outros
 
@@ -357,9 +400,9 @@ Serviços:
 ## Roadmap futuro (sugestões)
 
 - Testes automatizados (pytest + Vitest/Playwright).  
-- Paginação e filtros em efetivo e logs.  
-- Auditoria exportável (CSV/PDF).  
-- Notificações em tempo real (WebSocket) para o feed operacional.  
+- Paginação e filtros em efetivo, logs de frota e calendário de folgas.  
+- Auditoria exportável (CSV/PDF) — logs de aprovação de folgas já persistidos no banco.  
+- Notificações em tempo real (WebSocket) para filas de frota, folgas e compensações.  
 - Política de senha e 2FA para contas sensíveis.
 
 ---

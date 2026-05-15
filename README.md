@@ -3,7 +3,7 @@
 # Pelotão System
 
 **Web operations system for internal police platoon management**  
-Tactical unit / ROCAM · roster · profiles · patrol vehicles · logs
+Tactical unit / ROCAM · roster · profiles · patrol vehicles · leaves & compensations · logs
 
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev/)
@@ -21,7 +21,7 @@ Tactical unit / ROCAM · roster · profiles · patrol vehicles · logs
 
 ## Overview
 
-**Pelotão System** is an internal **full-stack** application: **JWT** authentication, signup with **command-level approval**, granular **RBAC**, an operations dashboard, **roster** ordering by rank with persisted **drag-and-drop** seniority, detailed **officer profiles**, a **patrol vehicle** module (FT and ROCAM) with automatic **operational history and logs**, and a **dashboard** feed of recent fleet events.
+**Pelotão System** is an internal **full-stack** application: **JWT** authentication, signup with **command-level approval**, granular **RBAC**, an operations dashboard, **roster** ordering by rank with persisted **drag-and-drop** seniority, detailed **officer profiles**, a **patrol vehicle** module (FT and ROCAM) with automatic **operational history and logs**, an operational **leaves & compensations** module (monthly calendar, requests, review queue, compensation credits), and a **dashboard** with fleet events plus leave workload indicators (including **critical days** for command).
 
 The UI uses a **dark** operational theme, a **responsive sidebar** (hamburger menu on mobile), and **Docker** packaging.
 
@@ -39,6 +39,7 @@ Centralize, with traceability:
 
 - who is on the roster, in what hierarchical order, and with which personnel data;
 - vehicle state (in service, out of service, maintenance, reserve) and **who** changed **what** and **why**;
+- monthly leave requests and compensation credits, with command approval and an auditable trail;
 - access driven by the officer’s **application role** (do not confuse institutional **rank** with app **role**).
 
 ---
@@ -98,26 +99,26 @@ Centralize, with traceability:
 ```text
 pelotao-system/
 ├── backend/
-│   ├── alembic/              # env.py + versions (001…003)
+│   ├── alembic/              # env.py + versions (001…005)
 │   ├── auth/                 # JWT, deps, password hashing
-│   ├── core/                 # config, ranks (rank ordering)
+│   ├── core/                 # config, ranks, leave booking policy, compensation labels
 │   ├── database/             # Base, session
-│   ├── models/               # User, Vehicle, VehicleLog
-│   ├── routes/               # auth, users, vehicles
-│   ├── schemas/              # Pydantic
-│   ├── services/             # business rules
+│   ├── models/               # User, Vehicle, VehicleLog, LeaveRequest, CompensationEvent, …
+│   ├── routes/               # auth, users, vehicles, leaves, compensations
+│   ├── schemas/              # Pydantic (users, vehicles, leaves, compensations)
+│   ├── services/             # user, vehicle, leave, compensation services
 │   ├── main.py
 │   ├── requirements.txt
 │   └── docker-entrypoint.sh
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # ProtectedRoute, SortablePoliceRow, vehicle/…
+│   │   ├── components/       # ProtectedRoute, SortablePoliceRow, vehicle/, folgas/…
 │   │   ├── constants/        # ranks.ts
 │   │   ├── hooks/            # AuthContext
 │   │   ├── layouts/          # OperationalLayout (sidebar)
-│   │   ├── pages/            # Login, Register, Dashboard, Efetivo, Viaturas, Perfil, PendingUsers
-│   │   ├── services/         # api, authApi, usersApi, vehiclesApi
-│   │   └── types.ts + types/vehicle.ts
+│   │   ├── pages/            # Login, Register, Dashboard, Efetivo, Viaturas, Folgas, Perfil, PendingUsers
+│   │   ├── services/         # api, authApi, usersApi, vehiclesApi, leavesApi, compensationsApi
+│   │   └── types.ts + types/vehicle.ts + types/leaves.ts
 │   ├── package.json
 │   └── nginx.conf            # nginx stage of the frontend Dockerfile
 ├── docker/
@@ -142,10 +143,11 @@ pelotao-system/
 | Approvals | Pending list; approve with required **role** or reject (`ADMIN`, `N90`, `TAT_CMD`). |
 | Admin bootstrap | If `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set in `.env`, creates an admin on startup (if the email does not exist). |
 | Dashboard | Welcome + **latest vehicle logs** (`GET /vehicles/recent-logs`). |
-| Layout | Sidebar: Dashboard, Roster, Vehicles, Profile + **Approvals** (approvers only). |
+| Layout | Sidebar: Dashboard, Roster, Vehicles, **Leaves**, Profile + **Approvals** (approvers and compensation registrars). |
 | Roster | Approved users grouped by rank; **DnD** per rank (command); persisted `display_order`. |
 | Profile | Operational fields (full name, ID number, address, etc.); edits per RBAC. |
 | Vehicles | **FT** / **ROCAM** listing; create / edit status (with reason); per-vehicle log timeline; global feed. |
+| Leaves & compensations | Monthly **operational calendar** (`/folgas`); monthly leave or compensation-credit requests; automatic **REVIEW** when limits are exceeded; unified **Approvals** hub (signups, pending leaves, pending compensations); compensation event registration and credit consumption. |
 | Health | `GET /health` |
 
 ---
@@ -157,15 +159,16 @@ pelotao-system/
 | **ADMIN** | Full access to approvals, roster (reorder + profiles + `is_active`), vehicles (CRUD + status). |
 | **N90** | Same as approver / roster staff / vehicles. |
 | **TAT_CMD** | Same. |
-| **BRACAL** | Edits **own** profile; cannot change `is_active`; can **create/update vehicles** and status; cannot reorder roster or approve signups. |
-| **ESTAGIO** | Edits **own** profile; **read-only** on vehicles (no create/status change); cannot reorder roster. |
+| **BRACAL** | Edits **own** profile; cannot change `is_active`; can **create/update vehicles** and status; can **register compensation events** (pending command approval); cannot reorder roster or approve signups/leaves/compensations. |
+| **ESTAGIO** | Edits **own** profile; **read-only** on vehicles (no create/status change); can request leaves; **cannot** register compensations; cannot reorder roster. |
 
 > Institutional **rank** (text field) ≠ application **role** (enum).
 
 Backend dependencies:
 
-- `require_approver` / `STAFF_EDITOR_ROLES` → approvals + `PUT /users/efetivo/reorder` + broad profile edits.
+- `require_approver` / `STAFF_EDITOR_ROLES` → signups, pending leaves/compensations, `PUT /users/efetivo/reorder`, broad profile edits.
 - `require_vehicle_editor` (`VEHICLE_EDITOR_ROLES`) → `POST/PATCH` on `/vehicles`.
+- `require_compensation_creator` (`COMPENSATION_CREATOR_ROLES`, excludes `ESTAGIO`) → `POST /compensations`.
 
 ---
 
@@ -193,7 +196,14 @@ Notable fields: `email` (unique), `hashed_password`, `patente`, `nome_guerra`, p
 - **Vehicle**: unique `placa` and `prefixo`, `modelo`, `modalidade` (`FT` \| `ROCAM`), `status` (`OPERANDO` \| `BAIXADA` \| `MANUTENCAO` \| `RESERVA`), `baixada_at`, `retorno_operacao_at`, timestamps.  
 - **Log**: `vehicle_id`, `user_id`, `action_type` (`CREATED`, `STATUS_CHANGED`, `RETURNED`, `UPDATED`), `description`, `motivo`, `old_status`, `new_status`, `created_at`.
 
-Alembic migrations: `001_initial` (users + user ENUMs), `002_profile` (profile fields + order), `003_vehicles` (fleet ENUMs + tables).
+Alembic migrations: `001_initial` (users + user ENUMs), `002_profile` (profile fields + order), `003_vehicles` (fleet ENUMs + tables), `004_leaves_compensations`, `005_user_compensation_display_label`.
+
+### Leaves / compensations
+
+- **`leave_requests`**: `leave_on`, `leave_type` (`MONTHLY` \| `COMPENSATION`), optional `user_compensation_id`, `status` (`PENDING` \| `REVIEW` \| `APPROVED` \| `REJECTED` \| `CANCELLED`), `review_reason`, decision fields, timestamps.  
+- **`leave_approval_logs`**: audit trail per request (`action`, `from_status` / `to_status`, `motivo`, `details`, `actor_id`).  
+- **`compensation_events`** + **`compensation_event_participants`**: operational event (`CPJ_SUPPORT`, `WEAPON_OCCURRENCE`, etc.) with `PENDING` / `APPROVED` / `REJECTED`.  
+- **`user_compensations`**: per-officer credit (`AVAILABLE` \| `USED`), `display_label`, link to originating event and consuming leave.
 
 ---
 
@@ -215,15 +225,27 @@ Alembic migrations: `001_initial` (users + user ENUMs), `002_profile` (profile f
 
 ## Operational logs
 
-- Created in **services** when a vehicle is created, fields change (`UPDATED`), or status changes (`STATUS_CHANGED` / `RETURNED` when returning to operations from `BAIXADA` or `MANUTENCAO`).  
-- Aggregated feed: `GET /vehicles/recent-logs?limit=…` (used on the dashboard).
+- **Vehicles**: created in **services** on create/update/status change; feed via `GET /vehicles/recent-logs?limit=…`.  
+- **Leaves**: each create/approve/reject/cancel appends a row to `leave_approval_logs` (actor, status transition, reason).
+
+---
+
+## Leaves & compensations module
+
+- **Calendar** (`GET /leaves/calendar`): month view with entries sorted by operational priority — **monthly leave before compensation leave**, then roster `display_order`, then `nome_guerra`. Days with **≥4** active requests are flagged **critical** (command summary on dashboard).  
+- **Requests** (`POST /leaves/request`): monthly leave or leave tied to an **available** compensation credit; booking window enforced (`core/leave_booking_policy.py`: current month; next month from day **25** onward).  
+- **Operational review**: if the officer exceeds **2** leaves/month or the day would have **>4** officers out, status becomes **`REVIEW`** with `review_reason` (command may still approve/reject).  
+- **Compensations**: `POST /compensations` registers an event with participants; on approval, credits are issued per participant; credits are consumed when scheduling a `COMPENSATION` leave.  
+- **Approvals**: command (`ADMIN` / `N90` / `TAT_CMD`) — `PATCH /leaves/{id}/approve|reject`, `PATCH /compensations/{id}/approve|reject`; officer may `PATCH /leaves/{id}/cancel` on own pending/review requests.  
+- Frontend: `/folgas` (calendar + request modal); `/admin/pending-users` tabs *Pending signups*, *Pending leaves*, *Pending compensations*.
 
 ---
 
 ## Operations dashboard
 
 - Frontend route: `/dashboard`.  
-- Besides static copy, shows **recent fleet events** with a subtle icon per event type.
+- **Fleet**: recent vehicle events with a subtle icon per event type.  
+- **Leaves**: cards for the user’s pending requests; for command — pending leave/compensation queues and **critical days** (≥4 officers on leave that month).
 
 ---
 
@@ -259,6 +281,27 @@ Alembic migrations: `001_initial` (users + user ENUMs), `002_profile` (profile f
 | PATCH | `/vehicles/{vehicle_id}` | Fleet editor. |
 | PATCH | `/vehicles/{vehicle_id}/status` | Fleet editor (+ log). |
 | GET | `/vehicles/{vehicle_id}/logs` | History. |
+
+### Leaves — prefix `/leaves`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| GET | `/leaves/calendar` | Approved, active (`year`, `month` query). |
+| GET | `/leaves/pending` | Approver. |
+| POST | `/leaves/request` | Approved, active. |
+| PATCH | `/leaves/{leave_id}/approve` | Approver. |
+| PATCH | `/leaves/{leave_id}/reject` | Approver. |
+| PATCH | `/leaves/{leave_id}/cancel` | Owner (pending/review). |
+
+### Compensations — prefix `/compensations`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| GET | `/compensations/pending` | Approver. |
+| GET | `/compensations/available` | Approved, active (own credits). |
+| POST | `/compensations/` | Compensation creator (not `ESTAGIO`). |
+| PATCH | `/compensations/{event_id}/approve` | Approver. |
+| PATCH | `/compensations/{event_id}/reject` | Approver. |
 
 ### Other
 
@@ -357,9 +400,9 @@ Root `.env` is referenced by Compose `env_file` (`SECRET_KEY`, `CORS_ORIGINS`, a
 ## Roadmap (ideas)
 
 - Automated tests (pytest + Vitest/Playwright).  
-- Pagination and filters for roster and logs.  
-- Exportable audit trail (CSV/PDF).  
-- Real-time notifications (WebSocket) for the operations feed.  
+- Pagination and filters for roster, fleet logs, and leave calendar.  
+- Exportable audit trail (CSV/PDF) — leave approval logs already persisted in DB.  
+- Real-time notifications (WebSocket) for fleet and leave/compensation queues.  
 - Password policy and 2FA for sensitive accounts.
 
 ---
