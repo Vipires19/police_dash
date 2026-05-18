@@ -21,6 +21,8 @@ export interface User {
 
 export const STAFF_EDITOR_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD"];
 
+export const SCALE_EDITOR_ROLES: Role[] = ["ADMIN", "N90"];
+
 export const APPROVER_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD"];
 
 export const COMPENSATION_CREATOR_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL"];

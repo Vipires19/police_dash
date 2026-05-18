@@ -2,7 +2,9 @@ import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
   ClipboardList,
+  Palmtree,
   LayoutDashboard,
+  CalendarRange,
   Menu,
   Shield,
   Truck,
@@ -38,8 +40,10 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
   const items: { to: string; label: string; icon: LucideIcon }[] = [
     { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     { to: "/efetivo", label: "Efetivo", icon: Users },
+    { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
     { to: "/viaturas", label: "Viaturas", icon: Truck },
     { to: "/folgas", label: "Folgas", icon: CalendarDays },
+    { to: "/ferias", label: "Férias", icon: Palmtree },
     { to: "/perfil", label: "Perfil", icon: UserCircle },
   ];
 

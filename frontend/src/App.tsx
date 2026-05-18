@@ -6,6 +6,8 @@ import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EfetivoPage } from "@/pages/EfetivoPage";
+import { FeriasPage } from "@/pages/FeriasPage";
+import { ServiceScalePage } from "@/pages/ServiceScalePage";
 import { FolgasPage } from "@/pages/FolgasPage";
 import { PendingUsersPage } from "@/pages/PendingUsersPage";
 import { PerfilPage } from "@/pages/PerfilPage";
@@ -96,6 +98,22 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <FolgasPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/ferias",
+    element: (
+      <ProtectedRoute>
+        <FeriasPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/escala-servico",
+    element: (
+      <ProtectedRoute>
+        <ServiceScalePage />
       </ProtectedRoute>
     ),
   },

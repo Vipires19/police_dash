@@ -86,6 +86,18 @@ def require_vehicle_editor(current: User = Depends(get_current_approved_user)) -
     return current
 
 
+SCALE_EDITOR_ROLES = {UserRole.ADMIN, UserRole.N90}
+
+
+def require_scale_editor(current: User = Depends(get_current_approved_user)) -> User:
+    if current.role not in SCALE_EDITOR_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Somente N90 pode gerenciar escalas de serviço",
+        )
+    return current
+
+
 def require_compensation_creator(current: User = Depends(get_current_approved_user)) -> User:
     if current.role == UserRole.ESTAGIO:
         raise HTTPException(

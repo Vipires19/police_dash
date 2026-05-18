@@ -99,7 +99,22 @@ def update_user_profile(
     payload = data.model_dump(exclude_unset=True)
     if not is_staff:
         payload.pop("is_active", None)
+        payload.pop("role", None)
+    role_value = payload.pop("role", None)
+    if role_value is not None:
+        if not is_staff:
+            msg = "Sem permissão para alterar role"
+            raise PermissionError(msg)
+        if target.id == actor.id:
+            msg = "Não é permitido alterar a própria role"
+            raise PermissionError(msg)
+        target.role = UserRole(role_value)
     if not payload:
+        if role_value is None:
+            return target
+        db.add(target)
+        db.commit()
+        db.refresh(target)
         return target
     for field, value in payload.items():
         setattr(target, field, value)
@@ -112,17 +127,14 @@ def update_user_profile(
 
 
 def reorder_efetivo_patente(db: Session, patente: str, ordered_user_ids: list[int]) -> None:
-    key = patente.strip().lower()
-    expected = list(
-        db.scalars(
-            select(User).where(
-                User.status == UserStatus.APPROVED,
-                func.lower(func.trim(User.patente)) == key,
-            )
-        ).all()
+    target_rank, _ = patente_sort_key(patente)
+    approved = list(
+        db.scalars(select(User).where(User.status == UserStatus.APPROVED)).all()
     )
+    expected = [u for u in approved if patente_sort_key(u.patente)[0] == target_rank]
     expected_ids = {u.id for u in expected}
-    if expected_ids != set(ordered_user_ids):
+    submitted_ids = set(ordered_user_ids)
+    if expected_ids != submitted_ids or len(ordered_user_ids) != len(expected):
         msg = "Lista de IDs não corresponde ao efetivo desta patente"
         raise ValueError(msg)
     by_id = {u.id: u for u in expected}

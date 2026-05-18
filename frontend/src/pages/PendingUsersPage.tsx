@@ -1,14 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { leaveStatusBadgeClass, leaveStatusLabel } from "@/components/folgas/statusStyles";
+import {
+  vacationStatusBadgeClass,
+  vacationStatusLabel,
+  vacationTypeLabel,
+} from "@/components/vacations/statusStyles";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
 import type { Role, User } from "@/types";
 import type { CompensationEventPublic, CompensationType, LeaveRequestPublic } from "@/types/leaves";
+import type { VacationRequestPublic } from "@/types/vacation";
 import { ApiError } from "@/services/api";
 import * as authApi from "@/services/authApi";
 import * as compensationsApi from "@/services/compensationsApi";
 import * as leavesApi from "@/services/leavesApi";
+import * as vacationsApi from "@/services/vacationsApi";
 import * as usersApi from "@/services/usersApi";
 
 const ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL", "ESTAGIO"];
@@ -21,7 +28,7 @@ const EVENT_LABELS: Record<CompensationType, string> = {
   FIVE_FLAGRANTS: "05 flagrantes",
 };
 
-type TabId = "cadastros" | "folgas" | "compensacoes";
+type TabId = "cadastros" | "folgas" | "ferias" | "compensacoes";
 
 export function PendingUsersPage() {
   const { token, refreshUser, isApprover, canRegisterCompensation } = useAuth();
@@ -32,6 +39,7 @@ export function PendingUsersPage() {
     if (isApprover) {
       o.push({ id: "cadastros", label: "Cadastros pendentes" });
       o.push({ id: "folgas", label: "Folgas pendentes" });
+      o.push({ id: "ferias", label: "Férias pendentes" });
     }
     if (isApprover || canRegisterCompensation) {
       o.push({ id: "compensacoes", label: "Compensações pendentes" });
@@ -91,6 +99,7 @@ export function PendingUsersPage() {
 
       {activeTab === "cadastros" && isApprover && <CadastrosPendentesSection token={token} refreshUser={refreshUser} />}
       {activeTab === "folgas" && isApprover && <FolgasPendentesSection token={token} />}
+      {activeTab === "ferias" && isApprover && <FeriasPendentesSection token={token} />}
       {activeTab === "compensacoes" && (isApprover || canRegisterCompensation) && (
         <CompensacoesSection token={token} isApprover={isApprover} canRegisterCompensation={canRegisterCompensation} />
       )}
@@ -216,6 +225,144 @@ function CadastrosPendentesSection({
         )}
       </div>
     </section>
+  );
+}
+
+function FeriasPendentesSection({ token }: { token: string | null }) {
+  const [rows, setRows] = useState<VacationRequestPublic[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    setErr(null);
+    try {
+      const data = await vacationsApi.listPendingVacations(token);
+      setRows(data);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.detail : "Erro ao carregar fila");
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const act = async (id: number, kind: "approve" | "reject", reason: string) => {
+    if (!token) return;
+    setBusyId(id);
+    setMsg(null);
+    try {
+      if (kind === "approve") {
+        await vacationsApi.approveVacation(token, id, reason || null);
+      } else {
+        await vacationsApi.rejectVacation(token, id, reason);
+      }
+      setMsg("Atualizado.");
+      await load();
+    } catch (e) {
+      setMsg(e instanceof ApiError ? e.detail : "Falha na decisão");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const formatPeriod = (start: string, end: string) => {
+    const s = new Date(start + "T12:00:00").toLocaleDateString("pt-BR");
+    const e = new Date(end + "T12:00:00").toLocaleDateString("pt-BR");
+    return `${s} → ${e}`;
+  };
+
+  return (
+    <section className="space-y-4">
+      <h3 className="text-lg font-semibold text-zinc-100">Férias / LP pendentes</h3>
+      <p className="text-sm text-zinc-500">
+        Solicitações em análise ou com revisão automática (simultaneidade por dia) aguardam deferimento explícito.
+      </p>
+      {err && <p className="text-sm text-red-400">{err}</p>}
+      {msg && <p className="text-sm text-emerald-400">{msg}</p>}
+      <ul className="space-y-3">
+        {rows.map((r) => (
+          <li
+            key={r.id}
+            className="rounded-xl border border-zinc-800/80 bg-black/35 p-4 shadow-inner shadow-black/20"
+          >
+            <header className="flex flex-wrap items-start justify-between gap-3">
+              <section>
+                <p className="text-sm font-medium text-zinc-100">
+                  {r.patente} {r.nome_guerra}{" "}
+                  <span className="text-zinc-500">· {formatPeriod(r.start_date, r.end_date)}</span>
+                </p>
+                <p className="mt-1 text-xs text-zinc-500">
+                  {vacationTypeLabel(r.vacation_type)} · {r.total_days} dias · ID #{r.id}
+                </p>
+                {r.review_reason && (
+                  <p className="mt-2 text-xs text-amber-200/90">Revisão automática: {r.review_reason}</p>
+                )}
+              </section>
+              <span
+                className={[
+                  "rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                  vacationStatusBadgeClass(r.status),
+                ].join(" ")}
+              >
+                {vacationStatusLabel(r.status)}
+              </span>
+            </header>
+            <VacationDecisionRow
+              disabled={busyId === r.id}
+              onApprove={(m) => void act(r.id, "approve", m)}
+              onReject={(m) => void act(r.id, "reject", m)}
+            />
+          </li>
+        ))}
+        {rows.length === 0 && !err && <p className="text-sm text-zinc-500">Nenhuma solicitação pendente.</p>}
+      </ul>
+    </section>
+  );
+}
+
+function VacationDecisionRow({
+  disabled,
+  onApprove,
+  onReject,
+}: {
+  disabled: boolean;
+  onApprove: (reason: string) => void;
+  onReject: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <footer className="mt-4 flex flex-col gap-2 border-t border-zinc-800/80 pt-3 sm:flex-row sm:items-end">
+      <label className="flex-1 text-xs text-zinc-500">
+        Motivo / observação (obrigatório para indeferir)
+        <input
+          className="mt-1 w-full rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Texto operacional"
+        />
+      </label>
+      <section className="flex gap-2">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onApprove(reason)}
+          className="rounded border border-emerald-800/80 bg-emerald-950/40 px-3 py-2 text-xs font-medium text-emerald-100 hover:bg-emerald-900/40 disabled:opacity-50"
+        >
+          Deferir
+        </button>
+        <button
+          type="button"
+          disabled={disabled || !reason.trim()}
+          onClick={() => onReject(reason)}
+          className="rounded border border-red-800/80 bg-red-950/40 px-3 py-2 text-xs font-medium text-red-100 hover:bg-red-900/40 disabled:opacity-50"
+        >
+          Indeferir
+        </button>
+      </section>
+    </footer>
   );
 }
 

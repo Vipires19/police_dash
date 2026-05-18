@@ -1,4 +1,4 @@
-import type { User } from "@/types";
+import type { Role, User } from "@/types";
 import { apiFetch } from "./api";
 
 export interface UserProfilePatch {
@@ -11,6 +11,7 @@ export interface UserProfilePatch {
   patente?: string | null;
   nome_guerra?: string | null;
   is_active?: boolean | null;
+  role?: Role | null;
 }
 
 export async function listEfetivo(token: string): Promise<User[]> {

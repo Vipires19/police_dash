@@ -18,6 +18,13 @@ from models.compensations import (  # noqa: F401
     UserCompensation,
 )
 from models.leaves import LeaveApprovalLog, LeaveRequest  # noqa: F401
+from models.vacation import VacationApprovalLog, VacationRequest  # noqa: F401
+from models.service_scale import (  # noqa: F401
+    ScaleLog,
+    ScaleTeam,
+    ScaleTeamMember,
+    ServiceScale,
+)
 
 config = context.config
 if config.config_file_name is not None:

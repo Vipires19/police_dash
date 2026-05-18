@@ -9,7 +9,9 @@ from routes import auth as auth_routes
 from routes import compensations as compensations_routes
 from routes import leaves as leaves_routes
 from routes import users as users_routes
+from routes import vacations as vacations_routes
 from routes import vehicles as vehicles_routes
+from routes import service_scales as service_scales_routes
 from services.user_service import ensure_bootstrap_admin
 
 
@@ -46,6 +48,8 @@ app.include_router(users_routes.router)
 app.include_router(vehicles_routes.router)
 app.include_router(leaves_routes.router)
 app.include_router(compensations_routes.router)
+app.include_router(vacations_routes.router)
+app.include_router(service_scales_routes.router)
 
 
 @app.get("/health")

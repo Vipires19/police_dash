@@ -8,13 +8,19 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { SortablePoliceRow } from "@/components/SortablePoliceRow";
 import { useAuth } from "@/hooks/AuthContext";
-import type { User } from "@/types";
+import type { Role, User } from "@/types";
 import { isStaffEditor } from "@/types";
-import { patenteRank } from "@/constants/ranks";
+import {
+  ESTAGIO_SECTION_LABEL,
+  type VisualRankGroup,
+  VISUAL_GROUP_LABELS,
+  patenteRank,
+  visualRankGroup,
+} from "@/constants/ranks";
 import { ApiError } from "@/services/api";
 import * as usersApi from "@/services/usersApi";
 
@@ -29,8 +35,20 @@ const PATENTES_SELECT = [
   "SD",
 ];
 
-function buildGroups(users: User[]): { patenteDb: string; users: User[] }[] {
-  const groups: { patenteDb: string; users: User[] }[] = [];
+const ROLES_SELECT: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL", "ESTAGIO"];
+
+const VISUAL_GROUP_ORDER: VisualRankGroup[] = ["OFFICERS", "NCOS", "ENLISTED"];
+
+type PatenteGroup = { patenteDb: string; users: User[] };
+
+type VisualGroup = {
+  group: VisualRankGroup;
+  label: string;
+  patentes: PatenteGroup[];
+};
+
+function buildPatenteGroups(users: User[]): PatenteGroup[] {
+  const groups: PatenteGroup[] = [];
   for (const u of users) {
     const key = u.patente.trim().toLowerCase();
     const last = groups[groups.length - 1];
@@ -43,6 +61,74 @@ function buildGroups(users: User[]): { patenteDb: string; users: User[] }[] {
   return groups;
 }
 
+function partitionEfetivoByRole(users: User[]): { operational: User[]; estagio: User[] } {
+  const operational: User[] = [];
+  const estagio: User[] = [];
+  for (const u of users) {
+    if (u.role === "ESTAGIO") estagio.push(u);
+    else operational.push(u);
+  }
+  return { operational, estagio };
+}
+
+function buildVisualGroups(users: User[]): VisualGroup[] {
+  const patenteGroups = buildPatenteGroups(sortUsersLikeBackend(users));
+  const byVisual = new Map<VisualRankGroup, PatenteGroup[]>();
+  for (const pg of patenteGroups) {
+    const vg = visualRankGroup(pg.patenteDb);
+    const list = byVisual.get(vg) ?? [];
+    list.push(pg);
+    byVisual.set(vg, list);
+  }
+  return VISUAL_GROUP_ORDER.filter((g) => byVisual.has(g)).map((group) => ({
+    group,
+    label: VISUAL_GROUP_LABELS[group],
+    patentes: byVisual.get(group)!,
+  }));
+}
+
+function buildEfetivoLayout(users: User[]) {
+  const { operational, estagio } = partitionEfetivoByRole(users);
+  return {
+    visualGroups: buildVisualGroups(operational),
+    estagioPatentes: buildPatenteGroups(sortUsersLikeBackend(estagio)),
+  };
+}
+
+function usersForPatenteRank(allUsers: User[], patente: string): User[] {
+  const targetRank = patenteRank(patente);
+  return sortUsersLikeBackend(allUsers.filter((u) => patenteRank(u.patente) === targetRank));
+}
+
+/** Mescla reordenação do bloco visível na ordem completa da patente (inclui ESTAGIO na mesma patente). */
+function buildFullPatenteOrder(allUsers: User[], patente: string, reorderedSubsetIds: number[]): number[] {
+  const subsetSet = new Set(reorderedSubsetIds);
+  const allForPatente = usersForPatenteRank(allUsers, patente);
+  if (subsetSet.size === 0) return allForPatente.map((u) => u.id);
+
+  const byId = new Map(allForPatente.map((u) => [u.id, u]));
+  const reorderedQueue = reorderedSubsetIds.map((id) => byId.get(id)).filter((u): u is User => u !== undefined);
+  let ri = 0;
+  return allForPatente.map((u) => {
+    if (subsetSet.has(u.id)) {
+      return reorderedQueue[ri++]!.id;
+    }
+    return u.id;
+  });
+}
+
+function applyPatenteReorder(users: User[], patente: string, fullOrderedIds: number[]): User[] {
+  const targetRank = patenteRank(patente);
+  const orderMap = new Map(fullOrderedIds.map((id, i) => [id, i]));
+  return sortUsersLikeBackend(
+    users.map((u) => {
+      const idx = orderMap.get(u.id);
+      if (patenteRank(u.patente) !== targetRank || idx === undefined) return u;
+      return { ...u, display_order: idx };
+    }),
+  );
+}
+
 function sortUsersLikeBackend(users: User[]): User[] {
   return [...users].sort((a, b) => {
     const ra = patenteRank(a.patente);
@@ -53,25 +139,27 @@ function sortUsersLikeBackend(users: User[]): User[] {
   });
 }
 
-function PatenteBlock({
+const PatenteBlock = memo(function PatenteBlock({
   patenteDb,
   users,
   canReorder,
   onOpen,
   onReordered,
+  showEstagioBadge = false,
 }: {
   patenteDb: string;
   users: User[];
   canReorder: boolean;
   onOpen: (u: User) => void;
-  onReordered: (patente: string, ids: number[]) => Promise<void>;
+  onReordered: (patente: string, ids: number[]) => void;
+  showEstagioBadge?: boolean;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  const handleDragEnd = async (event: DragEndEvent) => {
+  const handleDragEnd = (event: DragEndEvent) => {
     if (!canReorder) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -80,16 +168,21 @@ function PatenteBlock({
     const newIndex = ids.indexOf(String(over.id));
     if (oldIndex < 0 || newIndex < 0) return;
     const next = arrayMove(users, oldIndex, newIndex);
-    await onReordered(patenteDb, next.map((u) => u.id));
+    onReordered(patenteDb, next.map((u) => u.id));
   };
 
   return (
-    <section className="space-y-3">
-      <div className="flex items-baseline justify-between gap-2 border-b border-zinc-800/80 pb-2">
-        <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-400">{patenteDb}</h3>
-        <span className="text-xs text-zinc-600">{users.length} policiais</span>
+    <div className="space-y-2">
+      <div className="flex items-baseline justify-between gap-2 px-1">
+        <h4 className="text-xs font-medium uppercase tracking-[0.15em] text-zinc-500">{patenteDb}</h4>
+        <span className="text-[10px] text-zinc-600">{users.length}</span>
       </div>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(e) => void handleDragEnd(e)}>
+      <DndContext
+        sensors={sensors}
+        autoScroll={false}
+        collisionDetection={closestCenter}
+        onDragEnd={handleDragEnd}
+      >
         <SortableContext items={users.map((u) => String(u.id))} strategy={verticalListSortingStrategy}>
           <div className="flex flex-col gap-2">
             {users.map((u) => (
@@ -97,12 +190,94 @@ function PatenteBlock({
                 key={u.id}
                 user={u}
                 dragDisabled={!canReorder}
+                showEstagioBadge={showEstagioBadge}
                 onOpen={() => onOpen(u)}
               />
             ))}
           </div>
         </SortableContext>
       </DndContext>
+    </div>
+  );
+});
+
+function VisualGroupSection({
+  label,
+  patentes,
+  canReorder,
+  onOpen,
+  onReordered,
+}: {
+  label: string;
+  patentes: PatenteGroup[];
+  canReorder: boolean;
+  onOpen: (u: User) => void;
+  onReordered: (patente: string, ids: number[]) => void;
+}) {
+  const total = patentes.reduce((n, p) => n + p.users.length, 0);
+  return (
+    <section className="space-y-5">
+      <div className="flex items-baseline justify-between gap-2 border-b border-zinc-700/80 pb-2">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-zinc-300">{label}</h3>
+        <span className="text-xs text-zinc-600">{total} policiais</span>
+      </div>
+      <div className="space-y-6 pl-0 sm:pl-1">
+        {patentes.map((p) => (
+          <PatenteBlock
+            key={p.patenteDb}
+            patenteDb={p.patenteDb}
+            users={p.users}
+            canReorder={canReorder}
+            onOpen={onOpen}
+            onReordered={onReordered}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EstagioSection({
+  patentes,
+  canReorder,
+  onOpen,
+  onReordered,
+}: {
+  patentes: PatenteGroup[];
+  canReorder: boolean;
+  onOpen: (u: User) => void;
+  onReordered: (patente: string, ids: number[]) => void;
+}) {
+  const total = patentes.reduce((n, p) => n + p.users.length, 0);
+  return (
+    <section className="space-y-5 rounded-xl border border-violet-900/40 bg-violet-950/10 p-4 sm:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-violet-900/30 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-200">
+            {ESTAGIO_SECTION_LABEL}
+          </h3>
+          <span className="rounded border border-violet-800/60 bg-violet-950/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-300">
+            Role ESTAGIO
+          </span>
+        </div>
+        <span className="text-xs text-violet-400/80">{total} em estágio</span>
+      </div>
+      <p className="text-xs text-violet-300/70">
+        Policiais com role de estágio, separados do efetivo operacional. A antiguidade continua por patente.
+      </p>
+      <div className="space-y-6 pl-0 sm:pl-1">
+        {patentes.map((p) => (
+          <PatenteBlock
+            key={p.patenteDb}
+            patenteDb={p.patenteDb}
+            users={p.users}
+            canReorder={canReorder}
+            showEstagioBadge
+            onOpen={onOpen}
+            onReordered={onReordered}
+          />
+        ))}
+      </div>
     </section>
   );
 }
@@ -142,6 +317,7 @@ function Drawer({
       patente: user.patente,
       nome_guerra: user.nome_guerra,
       is_active: user.is_active,
+      role: user.role,
     });
   }, [user]);
 
@@ -150,6 +326,7 @@ function Drawer({
   const isSelf = user.id === currentUserId;
   const canEdit = canEditAny || isSelf;
   const showActiveToggle = canEditAny;
+  const showRoleSelect = canEditAny && !isSelf;
 
   async function save() {
     if (!token || !user) return;
@@ -159,6 +336,9 @@ function Drawer({
       const patch: usersApi.UserProfilePatch = { ...form };
       if (!showActiveToggle) {
         delete patch.is_active;
+      }
+      if (!showRoleSelect) {
+        delete patch.role;
       }
       await usersApi.patchUser(token, user.id, patch);
       await onSaved();
@@ -281,6 +461,22 @@ function Drawer({
                   <option value={form.patente}>{form.patente} (atual)</option>
                 )}
               </select>
+              {showRoleSelect && (
+                <>
+                  <label className="block text-xs uppercase text-zinc-500">Role no sistema</label>
+                  <select
+                    className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm"
+                    value={form.role ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
+                  >
+                    {ROLES_SELECT.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
               {showActiveToggle && (
                 <label className="flex items-center gap-2 text-sm text-zinc-300">
                   <input
@@ -340,9 +536,9 @@ export function EfetivoPage() {
 
   const canReorder = user ? isStaffEditor(user.role) : false;
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!token) return;
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     setError(null);
     try {
       const list = await usersApi.listEfetivo(token);
@@ -350,7 +546,7 @@ export function EfetivoPage() {
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : "Erro ao carregar efetivo");
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
     }
   }, [token]);
 
@@ -359,20 +555,26 @@ export function EfetivoPage() {
   }, [load]);
 
   const onReordered = useCallback(
-    async (patente: string, ids: number[]) => {
+    (patente: string, subsetIds: number[]) => {
       if (!token) return;
-      try {
-        await usersApi.reorderEfetivo(token, { patente, ordered_user_ids: ids });
-        await load();
-        void refreshUser();
-      } catch (e) {
-        setError(e instanceof ApiError ? e.detail : "Erro ao reordenar");
-      }
+      let snapshot: User[] = [];
+      let fullIds: number[] = [];
+      setUsers((prev) => {
+        snapshot = prev;
+        fullIds = buildFullPatenteOrder(prev, patente, subsetIds);
+        return applyPatenteReorder(prev, patente, fullIds);
+      });
+      void usersApi
+        .reorderEfetivo(token, { patente, ordered_user_ids: fullIds })
+        .catch((e) => {
+          setUsers(snapshot);
+          setError(e instanceof ApiError ? e.detail : "Erro ao reordenar");
+        });
     },
-    [token, load, refreshUser],
+    [token],
   );
 
-  const groups = useMemo(() => buildGroups(users), [users]);
+  const { visualGroups, estagioPatentes } = useMemo(() => buildEfetivoLayout(users), [users]);
 
   const openDrawer = (u: User) => {
     setSelected(u);
@@ -385,7 +587,8 @@ export function EfetivoPage() {
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Pelotão</p>
         <h1 className="mt-2 text-2xl font-semibold text-zinc-50 sm:text-3xl">Efetivo</h1>
         <p className="mt-2 max-w-xl text-sm text-zinc-400">
-          Listagem operacional por patente. Comandantes podem arrastar para ajustar antiguidade visual.
+          Efetivo operacional por categoria hierárquica, com seção separada para policiais em estágio. Comandantes podem
+          arrastar para ajustar antiguidade dentro da mesma patente.
         </p>
       </header>
 
@@ -399,16 +602,24 @@ export function EfetivoPage() {
         <p className="text-sm text-zinc-500">Carregando efetivo…</p>
       ) : (
         <div className="space-y-10">
-          {groups.map((g) => (
-            <PatenteBlock
-              key={g.users.map((u) => u.id).join("-")}
-              patenteDb={g.patenteDb}
-              users={g.users}
+          {visualGroups.map((g) => (
+            <VisualGroupSection
+              key={g.group}
+              label={g.label}
+              patentes={g.patentes}
               canReorder={canReorder}
               onOpen={openDrawer}
               onReordered={onReordered}
             />
           ))}
+          {estagioPatentes.length > 0 && (
+            <EstagioSection
+              patentes={estagioPatentes}
+              canReorder={canReorder}
+              onOpen={openDrawer}
+              onReordered={onReordered}
+            />
+          )}
           {users.length === 0 && <p className="text-sm text-zinc-500">Nenhum policial aprovado.</p>}
         </div>
       )}
@@ -423,7 +634,7 @@ export function EfetivoPage() {
           setSelected(null);
         }}
         onSaved={async () => {
-          await load();
+          await load({ silent: true });
           void refreshUser();
         }}
       />

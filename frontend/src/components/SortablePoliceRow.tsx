@@ -6,10 +6,12 @@ import type { User } from "@/types";
 export function SortablePoliceRow({
   user,
   dragDisabled,
+  showEstagioBadge = false,
   onOpen,
 }: {
   user: User;
   dragDisabled: boolean;
+  showEstagioBadge?: boolean;
   onOpen: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -55,9 +57,18 @@ export function SortablePoliceRow({
         </span>
         <span className="w-28 shrink-0 font-mono text-sm text-zinc-200">{user.re ?? "—"}</span>
         <span className="truncate text-sm font-medium text-zinc-100">{user.nome_guerra}</span>
-        {inactive && (
-          <span className="ml-auto shrink-0 rounded border border-amber-900/50 bg-amber-950/30 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
-            Inativo
+        {(showEstagioBadge || inactive) && (
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {showEstagioBadge && (
+              <span className="rounded border border-violet-800/60 bg-violet-950/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-300">
+                Estágio
+              </span>
+            )}
+            {inactive && (
+              <span className="rounded border border-amber-900/50 bg-amber-950/30 px-2 py-0.5 text-[10px] uppercase tracking-wide text-amber-200">
+                Inativo
+              </span>
+            )}
           </span>
         )}
       </button>

@@ -3,7 +3,7 @@
 # Pelotão System
 
 **Web operations system for internal police platoon management**  
-Tactical unit / ROCAM · roster · profiles · patrol vehicles · leaves & compensations · logs
+Tactical unit / ROCAM · roster · profiles · patrol vehicles · leaves & compensations · vacations & LP · service scales · logs
 
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev/)
@@ -21,7 +21,7 @@ Tactical unit / ROCAM · roster · profiles · patrol vehicles · leaves & compe
 
 ## Overview
 
-**Pelotão System** is an internal **full-stack** application: **JWT** authentication, signup with **command-level approval**, granular **RBAC**, an operations dashboard, **roster** ordering by rank with persisted **drag-and-drop** seniority, detailed **officer profiles**, a **patrol vehicle** module (FT and ROCAM) with automatic **operational history and logs**, an operational **leaves & compensations** module (monthly calendar, requests, review queue, compensation credits), and a **dashboard** with fleet events plus leave workload indicators (including **critical days** for command).
+**Pelotão System** is an internal **full-stack** application: **JWT** authentication, signup with **command-level approval**, granular **RBAC**, an operations dashboard, **roster** with visual grouping and persisted **drag-and-drop** seniority, **role management** for staff, detailed **officer profiles**, a **patrol vehicle** module (FT and ROCAM) with automatic **operational history and logs**, operational **leaves & compensations**, **vacations & LP (Licença Prêmio)** with operational calendars and review rules, **service scales** (FT/ROCAM teams, publication, audit logs, WhatsApp-ready export), and a **dashboard** with fleet events, scale activity, and absence indicators (including **critical days** for command).
 
 The UI uses a **dark** operational theme, a **responsive sidebar** (hamburger menu on mobile), and **Docker** packaging.
 
@@ -39,18 +39,24 @@ Centralize, with traceability:
 
 - who is on the roster, in what hierarchical order, and with which personnel data;
 - vehicle state (in service, out of service, maintenance, reserve) and **who** changed **what** and **why**;
-- monthly leave requests and compensation credits, with command approval and an auditable trail;
+- monthly leave requests, compensation credits, vacations, and LP, with command approval and an auditable trail;
+- daily **service scales** (FT and ROCAM teams, missions, vehicles/motorcycles, publication);
 - access driven by the officer’s **application role** (do not confuse institutional **rank** with app **role**).
 
 ---
 
 ## Screenshots
 
-[Login](docs/screenshots/login.png)
-[Dashboard](docs/screenshots/dashboard.png)
-[Roster](docs/screenshots/efetivo.png)
-[Vehicles](docs/screenshots/viaturas.png)
-[Profile](docs/screenshots/perfil.png)
+[Login](docs/screenshots/login.png)  
+[Dashboard](docs/screenshots/dashboard.png)  
+[Roster](docs/screenshots/efetivo.png)  
+[Vehicles](docs/screenshots/viaturas.png)  
+[Profile](docs/screenshots/perfil.png)  
+[Vacations & LP](docs/screenshots/ferias.png)  
+[Service scale](docs/screenshots/escala-servico.png)  
+[Scale export (WhatsApp)](docs/screenshots/escala-export.png)
+
+> Placeholder paths for new captures — add PNGs under `docs/screenshots/` when available.
 
 ---
 
@@ -99,38 +105,35 @@ Centralize, with traceability:
 ```text
 pelotao-system/
 ├── backend/
-│   ├── alembic/              # env.py + versions (001…005)
-│   ├── auth/                 # JWT, deps, password hashing
+│   ├── alembic/              # env.py + versions (001…007)
+│   ├── auth/                 # JWT, deps (approver, scale editor, vehicle editor, …)
 │   ├── core/                 # config, ranks, leave booking policy, compensation labels
 │   ├── database/             # Base, session
-│   ├── models/               # User, Vehicle, VehicleLog, LeaveRequest, CompensationEvent, …
-│   ├── routes/               # auth, users, vehicles, leaves, compensations
-│   ├── schemas/              # Pydantic (users, vehicles, leaves, compensations)
-│   ├── services/             # user, vehicle, leave, compensation services
+│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, …
+│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales
+│   ├── schemas/              # Pydantic DTOs per domain
+│   ├── services/             # domain services + scale_export_service.py
 │   ├── main.py
 │   ├── requirements.txt
 │   └── docker-entrypoint.sh
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # ProtectedRoute, SortablePoliceRow, vehicle/, folgas/…
-│   │   ├── constants/        # ranks.ts
+│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/ (export modal, DnD)
+│   │   ├── constants/        # ranks.ts (visual groups)
 │   │   ├── hooks/            # AuthContext
 │   │   ├── layouts/          # OperationalLayout (sidebar)
-│   │   ├── pages/            # Login, Register, Dashboard, Efetivo, Viaturas, Folgas, Perfil, PendingUsers
-│   │   ├── services/         # api, authApi, usersApi, vehiclesApi, leavesApi, compensationsApi
-│   │   └── types.ts + types/vehicle.ts + types/leaves.ts
+│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, Folgas, Férias, Escala, Perfil, Approvals
+│   │   ├── services/         # api clients per module
+│   │   └── types.ts + types/*.ts
 │   ├── package.json
-│   └── nginx.conf            # nginx stage of the frontend Dockerfile
+│   └── nginx.conf
 ├── docker/
-│   ├── docker-compose.yml
-│   ├── Dockerfile.backend
-│   └── Dockerfile.frontend
-├── docs/screenshots/         # screenshot placeholders
-├── prompts/                  # prompt drafts (not used at runtime)
+├── docs/screenshots/
+├── prompts/
 ├── .env.example
 ├── LICENSE
-├── README.md                 # this file (en-US)
-└── READMEptbr.md             # Portuguese documentation
+├── README.md
+└── READMEptbr.md
 ```
 
 ---
@@ -139,15 +142,17 @@ pelotao-system/
 
 | Module | What exists today |
 |--------|-------------------|
-| Authentication | Signup (`PENDING`); login only for `APPROVED` + `is_active`; JWT HS256; configurable expiry (`access_token_expire_minutes`, default 24h). |
+| Authentication | Signup (`PENDING`); login only for `APPROVED` + `is_active`; JWT HS256; configurable expiry. |
 | Approvals | Pending list; approve with required **role** or reject (`ADMIN`, `N90`, `TAT_CMD`). |
-| Admin bootstrap | If `ADMIN_EMAIL` and `ADMIN_PASSWORD` are set in `.env`, creates an admin on startup (if the email does not exist). |
-| Dashboard | Welcome + **latest vehicle logs** (`GET /vehicles/recent-logs`). |
-| Layout | Sidebar: Dashboard, Roster, Vehicles, **Leaves**, Profile + **Approvals** (approvers and compensation registrars). |
-| Roster | Approved users grouped by rank; **DnD** per rank (command); persisted `display_order`. |
-| Profile | Operational fields (full name, ID number, address, etc.); edits per RBAC. |
-| Vehicles | **FT** / **ROCAM** listing; create / edit status (with reason); per-vehicle log timeline; global feed. |
-| Leaves & compensations | Monthly **operational calendar** (`/folgas`); monthly leave or compensation-credit requests; automatic **REVIEW** when limits are exceeded; unified **Approvals** hub (signups, pending leaves, pending compensations); compensation event registration and credit consumption. |
+| Admin bootstrap | Optional admin on startup via `.env` (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, …). |
+| Dashboard | Welcome; **3 latest vehicle logs**; **3 latest scale events**; command **away today** (leaves / vacations / LP split); critical-day alerts. |
+| Layout | Sidebar: Dashboard, Roster, **Service scale**, Vehicles, Leaves, **Vacations**, Profile, **Approvals**. |
+| Roster | Visual groups (Officers, NCOs, Enlisted, **Internship**); DnD seniority per rank; staff **role** editing; optimistic reorder. |
+| Profile | Operational fields; edits per RBAC. |
+| Vehicles | FT / ROCAM listing; create / edit status (with reason); per-vehicle log timeline; global feed. |
+| Leaves & compensations | Monthly calendar; monthly or compensation-credit requests; automatic **REVIEW** when limits exceeded; approval hub. |
+| Vacations & LP | Monthly calendar; **15- or 30-day** periods; max **2** simultaneous officers (Férias/LP); statuses + command review; roster availability flags. |
+| Service scales | Monthly calendar; multiple teams/day; FT (vehicle + up to 4 officers) and ROCAM (up to 3 officers, **individual motorcycles**); draft/publish; audit logs; history; **operational export**. |
 | Health | `GET /health` |
 
 ---
@@ -156,19 +161,20 @@ pelotao-system/
 
 | Role | Main effect in the current codebase |
 |------|-------------------------------------|
-| **ADMIN** | Full access to approvals, roster (reorder + profiles + `is_active`), vehicles (CRUD + status). |
-| **N90** | Same as approver / roster staff / vehicles. |
-| **TAT_CMD** | Same. |
-| **BRACAL** | Edits **own** profile; cannot change `is_active`; can **create/update vehicles** and status; can **register compensation events** (pending command approval); cannot reorder roster or approve signups/leaves/compensations. |
-| **ESTAGIO** | Edits **own** profile; **read-only** on vehicles (no create/status change); can request leaves; **cannot** register compensations; cannot reorder roster. |
+| **ADMIN** | Full access to approvals, roster (reorder + profiles + `is_active` + **role** of others), vehicles, **service scales** (N90-level). |
+| **N90** | Same as approver / roster staff / vehicles / **scale editor** (`SCALE_EDITOR_ROLES`). |
+| **TAT_CMD** | Approver; roster staff; vehicles; **view** published scales (no scale editing). |
+| **BRACAL** | Own profile; vehicles CRUD; compensation events; leaves/vacations requests; **no** scale editing. |
+| **ESTAGIO** | Own profile; read-only vehicles; leaves/vacations requests; shown in separate roster group; **no** scale editing. |
 
 > Institutional **rank** (text field) ≠ application **role** (enum).
 
 Backend dependencies:
 
-- `require_approver` / `STAFF_EDITOR_ROLES` → signups, pending leaves/compensations, `PUT /users/efetivo/reorder`, broad profile edits.
-- `require_vehicle_editor` (`VEHICLE_EDITOR_ROLES`) → `POST/PATCH` on `/vehicles`.
-- `require_compensation_creator` (`COMPENSATION_CREATOR_ROLES`, excludes `ESTAGIO`) → `POST /compensations`.
+- `require_approver` / `STAFF_EDITOR_ROLES` → signups, pending leaves/compensations/vacations, `PUT /users/efetivo/reorder`, broad profile edits (including **role** for others, not self).
+- `require_scale_editor` (`SCALE_EDITOR_ROLES`: **ADMIN**, **N90**) → create/publish/edit/delete scales and teams.
+- `require_vehicle_editor` → `POST/PATCH` on `/vehicles`.
+- `require_compensation_creator` (excludes `ESTAGIO`) → `POST /compensations`.
 
 ---
 
@@ -178,7 +184,7 @@ Backend dependencies:
 2. Approver calls `POST /users/approve/{id}` with `decision` + `role` (when approving).  
 3. `POST /auth/login` → JWT `access_token` (`sub` = user id; `role` claim).  
 4. Protected routes: `Authorization: Bearer <token>` header.  
-5. `get_current_user` validates JWT and loads `User`; `get_current_approved_user` requires `APPROVED` + `is_active`.  
+5. `get_current_approved_user` requires `APPROVED` + `is_active`.  
 6. Logout on the client clears `localStorage`.
 
 Interactive API docs: **`http://localhost:8000/docs`** (Swagger UI).
@@ -189,119 +195,234 @@ Interactive API docs: **`http://localhost:8000/docs`** (Swagger UI).
 
 ### `users`
 
-Notable fields: `email` (unique), `hashed_password`, `patente`, `nome_guerra`, profile fields (`full_name`, `re`, `address`, `phone`, `birth_date`, `blood_type`), `display_order`, `is_active`, `role` (PG `userrole` ENUM), `status` (PG `userstatus` ENUM), `created_at`.
+`email`, `patente`, `nome_guerra`, profile fields, `display_order`, `is_active`, `role` (`userrole`), `status` (`userstatus`), timestamps.
 
 ### `vehicles` / `vehicle_logs`
 
-- **Vehicle**: unique `placa` and `prefixo`, `modelo`, `modalidade` (`FT` \| `ROCAM`), `status` (`OPERANDO` \| `BAIXADA` \| `MANUTENCAO` \| `RESERVA`), `baixada_at`, `retorno_operacao_at`, timestamps.  
-- **Log**: `vehicle_id`, `user_id`, `action_type` (`CREATED`, `STATUS_CHANGED`, `RETURNED`, `UPDATED`), `description`, `motivo`, `old_status`, `new_status`, `created_at`.
-
-Alembic migrations: `001_initial` (users + user ENUMs), `002_profile` (profile fields + order), `003_vehicles` (fleet ENUMs + tables), `004_leaves_compensations`, `005_user_compensation_display_label`.
+Fleet units (FT/ROCAM) and immutable-style operational logs per change.
 
 ### Leaves / compensations
 
-- **`leave_requests`**: `leave_on`, `leave_type` (`MONTHLY` \| `COMPENSATION`), optional `user_compensation_id`, `status` (`PENDING` \| `REVIEW` \| `APPROVED` \| `REJECTED` \| `CANCELLED`), `review_reason`, decision fields, timestamps.  
-- **`leave_approval_logs`**: audit trail per request (`action`, `from_status` / `to_status`, `motivo`, `details`, `actor_id`).  
-- **`compensation_events`** + **`compensation_event_participants`**: operational event (`CPJ_SUPPORT`, `WEAPON_OCCURRENCE`, etc.) with `PENDING` / `APPROVED` / `REJECTED`.  
-- **`user_compensations`**: per-officer credit (`AVAILABLE` \| `USED`), `display_label`, link to originating event and consuming leave.
+`leave_requests`, `leave_approval_logs`, `compensation_events`, `user_compensations` — see existing migrations `004`, `005`.
+
+### Vacations / LP
+
+- **`vacation_requests`**: `vacation_type` (`FERIAS` \| `LP`), `start_date`, `end_date`, `total_days` (**15** or **30**), `status` (`PENDING` \| `REVIEW` \| `APPROVED` \| `REJECTED` \| `CANCELLED`), review/decision fields, `vacation_approval_logs` for audit.
+
+### Service scales
+
+- **`service_scales`**: one row per calendar day (`scale_date` unique), `title`, `status` (`DRAFT` \| `PUBLISHED`), `published_at`, `created_by_id`.
+- **`scale_teams`**: `modality` (`FT` \| `ROCAM`), optional `vehicle_id` (**FT only**; **NULL for ROCAM**), `start_datetime`, `end_datetime`, `mission_name`, `notes`.
+- **`scale_team_members`**: `user_id`, optional `assigned_vehicle_id` (**ROCAM motorcycle** per officer).
+- **`scale_logs`**: audit trail (`TEAM_ADDED`, `PUBLISHED`, `MEMBERS_CHANGED`, …).
+
+Alembic: `006_vacations.py`, `007_service_scales.py` (after `001`–`005`).
 
 ---
 
 ## Roster module
 
-- Route: `GET /users/efetivo` (approved, active).  
-- Server ordering: rank hierarchy (`core/ranks.py` / `constants/ranks.ts`) + `display_order` + name.  
-- **Reorder**: `PUT /users/efetivo/reorder` with body `{ patente, ordered_user_ids }` (`ADMIN` / `N90` / `TAT_CMD` only).  
-- Frontend: `/efetivo`, cards by rank, **@dnd-kit** per group, drawer with record and permission-based edit.
+- Route: `GET /users/efetivo` (approved users).
+- Server ordering: rank hierarchy + `display_order` + name.
+- **Visual grouping** (frontend only): Officers · SubTen/Sergeants · Corporals/Soldiers · **Internship** (`role === ESTAGIO`).
+- **Reorder**: `PUT /users/efetivo/reorder` with `{ patente, ordered_user_ids }` (staff only); optimistic UI without full-page reload.
+- **Role editing**: `PATCH /users/{id}` with `role` (staff; not on self).
+- Frontend: `/efetivo`, **@dnd-kit**, operational drawer.
+
+---
+
+## Vacations & LP module
+
+- **Calendar** (`GET /vacations/calendar`): month view; entries for **Férias** and **LP**; command summary (pending count, **away today**, critical days when **≥2** simultaneous Férias/LP on a day).
+- **Request** (`POST /vacations/request`): periods of **15 or 30** consecutive days; operational rule: max **2** officers on Férias/LP at once per day → may enter **`REVIEW`** with `review_reason`.
+- **Statuses**: `PENDING`, `REVIEW`, `APPROVED`, `REJECTED`, `CANCELLED`.
+- **Command**: `PATCH /vacations/{id}/approve|reject`; officer `PATCH /vacations/{id}/cancel` on own pending/review.
+- **Roster integration**: calendar/roster views flag officers with active leave/vacation on a date.
+- Frontend: `/ferias` (calendar + request modal); approvals tab for pending vacations.
+
+---
+
+## Service scales module
+
+### Operational calendar
+
+- Route: `/escala-servico` — monthly calendar (`GET /service-scales/calendar`).
+- Day drawer: create scale (draft), add/edit/remove teams, publish, delete scale, **export** (when published).
+
+### Team structure
+
+| Modality | Vehicle | Personnel | Notes |
+|----------|---------|-----------|--------|
+| **FT** | One **main patrol vehicle** (required, `OPERANDO`, FT) | Up to **4** officers | Mission presets (Tático Comando, Supervisor Tático, Força Tática) or custom |
+| **ROCAM** | **No team vehicle** (`vehicle_id = NULL`) | Up to **3** officers | Each officer has an **individual ROCAM motorcycle** (`assigned_vehicle_id`, required) |
+
+### Rules enforced (frontend + backend)
+
+- **Unique FT vehicle** per published scale (no duplicate patrol car across teams).
+- **Unique ROCAM motorcycle** per scale (no duplicate bike across members).
+- **Unique officer** per scale (cannot appear in two teams the same day).
+- Real-time filtering of unavailable vehicles, motorcycles, and roster when building teams.
+- **Edit team** without remove/recreate: patch team metadata and members in place.
+
+### Publication & audit
+
+- Draft scales visible only to **scale editors** (`ADMIN` / `N90`).
+- `POST /service-scales/{id}/publish` — requires at least one team; sets `PUBLISHED` + `published_at`.
+- Every change appends to **`scale_logs`** (actor, action, description).
+
+### Automatic absence cancellation
+
+When an officer is added to a scale on date **D**, active **leaves** and **vacations/LP** covering **D** for that officer are **automatically cancelled** (with audit reason), preserving operational flexibility.
+
+### Operational export (WhatsApp-ready)
+
+- Available only for **`PUBLISHED`** scales.
+- `GET /service-scales/{id}/export` → `{ "text": "…" }` (plain text, line breaks preserved).
+- Formatter in **`services/scale_export_service.py`** (decoupled for future WhatsApp/IA integration).
+- Frontend: **Export** button → modal with preview + **Copy** + “Copied” feedback.
+
+Example export (abbreviated):
+
+```text
+💀 ESCALA DE SERVIÇO 💀
+1° PELOTÃO DE FORÇA TÁTICA
+
+Dia 07 de Março de 2026
+Qtr: 12:45hs
+
+I-03027
+Ten Carvalho
+Sd Martins
+
+ROCAM 1
+Cb Broisler -> Moto I-03066-11
+Sd Bispo -> Moto I-03067-11
+
+Folga do mês:
+Sd De Paula
+
+Férias:
+Cb Araújo
+
+LP:
+Sd Custódio
+```
+
+Non-default shift hours (outside 06:00–18:00 on scale day) show mission name + time range before the team block.
 
 ---
 
 ## Vehicles module
 
-- Page `/viaturas`: **FT** and **ROCAM** sections, status badges, create modal, status-change modal (reason required), drawer with timeline (`GET /vehicles/{id}/logs`).  
-- API (prefix `/vehicles`): see **REST API** below.
+- Page `/viaturas`: FT and ROCAM sections, status workflow, logs, feed.
 
 ---
 
 ## Operational logs
 
-- **Vehicles**: created in **services** on create/update/status change; feed via `GET /vehicles/recent-logs?limit=…`.  
-- **Leaves**: each create/approve/reject/cancel appends a row to `leave_approval_logs` (actor, status transition, reason).
+| Domain | Mechanism |
+|--------|-----------|
+| Vehicles | `vehicle_logs` + `GET /vehicles/recent-logs` |
+| Leaves | `leave_approval_logs` |
+| Vacations | `vacation_approval_logs` |
+| Service scales | `scale_logs` + `GET /service-scales/recent-events` |
 
 ---
 
 ## Leaves & compensations module
 
-- **Calendar** (`GET /leaves/calendar`): month view with entries sorted by operational priority — **monthly leave before compensation leave**, then roster `display_order`, then `nome_guerra`. Days with **≥4** active requests are flagged **critical** (command summary on dashboard).  
-- **Requests** (`POST /leaves/request`): monthly leave or leave tied to an **available** compensation credit; booking window enforced (`core/leave_booking_policy.py`: current month; next month from day **25** onward).  
-- **Operational review**: if the officer exceeds **2** leaves/month or the day would have **>4** officers out, status becomes **`REVIEW`** with `review_reason` (command may still approve/reject).  
-- **Compensations**: `POST /compensations` registers an event with participants; on approval, credits are issued per participant; credits are consumed when scheduling a `COMPENSATION` leave.  
-- **Approvals**: command (`ADMIN` / `N90` / `TAT_CMD`) — `PATCH /leaves/{id}/approve|reject`, `PATCH /compensations/{id}/approve|reject`; officer may `PATCH /leaves/{id}/cancel` on own pending/review requests.  
-- Frontend: `/folgas` (calendar + request modal); `/admin/pending-users` tabs *Pending signups*, *Pending leaves*, *Pending compensations*.
+- **Calendar** (`GET /leaves/calendar`): monthly leave view; **≥4** officers out on a day → **critical** (dashboard).
+- **Requests**, **compensations**, **approvals** — unchanged core behavior; see prior README sections.
+- Frontend: `/folgas`, `/admin/pending-users`.
 
 ---
 
 ## Operations dashboard
 
-- Frontend route: `/dashboard`.  
-- **Fleet**: recent vehicle events with a subtle icon per event type.  
-- **Leaves**: cards for the user’s pending requests; for command — pending leave/compensation queues and **critical days** (≥4 officers on leave that month).
+- Route: `/dashboard`.
+- **Service scales**: last **3** operational events; quick **export** icon per event (opens export modal when scale is published).
+- **Vehicles**: last **3** fleet log entries.
+- **Command — away today**: separate lists for **Leaves**, **Férias**, and **LP** (approved, current date).
+- Critical-day banners for leaves (≥4) and vacations/LP (≥2).
 
 ---
 
 ## REST API (current)
 
-### Auth — prefix `/auth`
+### Auth — `/auth`
 
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/auth/register` | Signup (pending). |
-| POST | `/auth/login` | Login (approved + active) → JWT. |
+| POST | `/auth/login` | Login → JWT. |
 
-### Users — prefix `/users`
+### Users — `/users`
 
 | Method | Path | Auth / notes |
 |--------|------|----------------|
 | GET | `/users/me` | Approved, active. |
 | GET | `/users/pending` | Approver. |
-| GET | `/users/efetivo` | Approved, active. |
-| PUT | `/users/efetivo/reorder` | Staff (`ADMIN` / `N90` / `TAT_CMD`). |
+| GET | `/users/efetivo` | Approved roster. |
+| PUT | `/users/efetivo/reorder` | Staff. |
 | POST | `/users/approve/{user_id}` | Approver. |
-| GET | `/users/{user_id}` | Approved profile. |
-| PATCH | `/users/{user_id}` | Rules in `user_service.update_user_profile`. |
+| GET | `/users/{user_id}` | Profile. |
+| PATCH | `/users/{user_id}` | Profile + **role** (staff rules). |
 
-### Vehicles — prefix `/vehicles`
-
-| Method | Path | Auth / notes |
-|--------|------|----------------|
-| GET | `/vehicles/recent-logs` | Approved, active. |
-| GET | `/vehicles/` | List. |
-| POST | `/vehicles/` | Fleet editor. |
-| GET | `/vehicles/{vehicle_id}` | Detail. |
-| PATCH | `/vehicles/{vehicle_id}` | Fleet editor. |
-| PATCH | `/vehicles/{vehicle_id}/status` | Fleet editor (+ log). |
-| GET | `/vehicles/{vehicle_id}/logs` | History. |
-
-### Leaves — prefix `/leaves`
+### Vehicles — `/vehicles`
 
 | Method | Path | Auth / notes |
 |--------|------|----------------|
-| GET | `/leaves/calendar` | Approved, active (`year`, `month` query). |
+| GET | `/vehicles/recent-logs` | Feed (`limit`). |
+| GET/POST/PATCH | `/vehicles/…` | Fleet editors. |
+| GET | `/vehicles/{id}/logs` | Timeline. |
+
+### Leaves — `/leaves`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| GET | `/leaves/calendar` | Month view. |
 | GET | `/leaves/pending` | Approver. |
-| POST | `/leaves/request` | Approved, active. |
-| PATCH | `/leaves/{leave_id}/approve` | Approver. |
-| PATCH | `/leaves/{leave_id}/reject` | Approver. |
-| PATCH | `/leaves/{leave_id}/cancel` | Owner (pending/review). |
+| POST | `/leaves/request` | Create request. |
+| PATCH | `/leaves/{id}/approve\|reject\|cancel` | Workflow. |
 
-### Compensations — prefix `/compensations`
+### Compensations — `/compensations`
 
 | Method | Path | Auth / notes |
 |--------|------|----------------|
 | GET | `/compensations/pending` | Approver. |
-| GET | `/compensations/available` | Approved, active (own credits). |
-| POST | `/compensations/` | Compensation creator (not `ESTAGIO`). |
-| PATCH | `/compensations/{event_id}/approve` | Approver. |
-| PATCH | `/compensations/{event_id}/reject` | Approver. |
+| GET | `/compensations/available` | Own credits. |
+| POST | `/compensations/` | Creator (not `ESTAGIO`). |
+| PATCH | `/compensations/{id}/approve\|reject` | Approver. |
+
+### Vacations — `/vacations`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| GET | `/vacations/calendar` | Month view (`year`, `month`). |
+| GET | `/vacations/pending` | Approver. |
+| POST | `/vacations/request` | 15- or 30-day period. |
+| PATCH | `/vacations/{id}/approve` | Approver. |
+| PATCH | `/vacations/{id}/reject` | Approver. |
+| PATCH | `/vacations/{id}/cancel` | Owner (pending/review). |
+
+### Service scales — `/service-scales`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| GET | `/service-scales/calendar` | Month calendar. |
+| GET | `/service-scales/{date}` | Day detail (scale, roster, vehicles). |
+| GET | `/service-scales/history` | Paginated history. |
+| GET | `/service-scales/recent-events` | Audit feed. |
+| GET | `/service-scales/presets/missions` | FT / ROCAM mission presets. |
+| POST | `/service-scales/` | Scale editor — create scale. |
+| PATCH | `/service-scales/{id}` | Scale editor — metadata. |
+| POST | `/service-scales/{id}/publish` | Scale editor. |
+| POST | `/service-scales/{id}/teams` | Scale editor — add team. |
+| PATCH | `/service-scales/team/{id}` | Scale editor — edit team (+ optional `members`). |
+| PATCH | `/service-scales/team/{id}/members` | Scale editor — replace members. |
+| PATCH | `/service-scales/team/{id}/remove` | Scale editor — remove team. |
+| DELETE | `/service-scales/{id}` | Scale editor — delete scale. |
+| GET | `/service-scales/{id}/export` | **Published only** → `{ "text": "…" }`. |
 
 ### Other
 
@@ -315,74 +436,53 @@ Alembic migrations: `001_initial` (users + user ENUMs), `002_profile` (profile f
 
 ### Prerequisites
 
-- Python **3.12+**, **Node.js** 20+ (or 22 to match the frontend Dockerfile), **PostgreSQL** 16 (or Docker only).
+- Python **3.12+**, **Node.js** 20+ (or 22), **PostgreSQL** 16 (or Docker only).
 
 ### Backend
 
 ```bash
 cd backend
 python -m venv .venv
-# Windows: .venv\Scripts\activate
-source .venv/bin/activate   # Linux/macOS
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-# Create backend/.env from the repo root example (Settings uses env_file=".env" relative to backend CWD)
 cp ../.env.example .env
-# Edit backend/.env: SECRET_KEY, local DATABASE_URL, CORS_ORIGINS, etc.
 alembic upgrade head
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-> `Settings` (`core/config.py`) uses `env_file=".env"`: when running `uvicorn` from **`backend/`**, expect **`backend/.env`**. **Docker Compose** still loads the **root `.env`** via `env_file`—keep them in sync or export variables in your shell.
+> Run `uvicorn` from **`backend/`** with **`backend/.env`**. Docker Compose uses root **`.env`** — keep them aligned.
 
 ### Frontend
 
 ```bash
 cd frontend
 npm install
-# set API URL (dev)
-set VITE_API_URL=http://localhost:8000   # Windows CMD
-# export VITE_API_URL=http://localhost:8000  # Linux/macOS
+export VITE_API_URL=http://localhost:8000
 npm run dev
 ```
 
-Open **`http://localhost:5173`**. Ensure backend `CORS_ORIGINS` includes that origin.
+Open **`http://localhost:5173`**. Ensure `CORS_ORIGINS` includes that origin.
 
 ---
 
 ## `.env` configuration
 
-See **[`.env.example`](.env.example)** at the repository root. Backend variables (`pydantic-settings`):
-
-| Variable | Purpose |
-|----------|---------|
-| `SECRET_KEY` | JWT signing secret (`secret_key` in code). |
-| `DATABASE_URL` | PostgreSQL DSN (psycopg3). |
-| `CORS_ORIGINS` | Comma-separated list. |
-| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Optional admin bootstrap. |
-| `ADMIN_PATENTE` / `ADMIN_NOME_GUERRA` | Rank and war name for bootstrap admin. |
-
-Optional defaults in `core/config.py`: `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`.
+See **[`.env.example`](.env.example)**. Key variables: `SECRET_KEY`, `DATABASE_URL`, `CORS_ORIGINS`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_PATENTE`, `ADMIN_NOME_GUERRA`.
 
 ---
 
 ## Docker
-
-From the **`docker/`** directory:
 
 ```bash
 cd docker
 docker compose up --build
 ```
 
-Services:
-
-| Service | Port | Notes |
-|---------|------|-------|
-| `db` | 5432 | Compose-fixed user/password/db: `pelotao` / `pelotao` / `pelotao`. |
-| `backend` | 8000 | Injects `DATABASE_URL` to host `db`. Runs migrations on entrypoint. |
-| `frontend` | 80 | Build uses compose `VITE_API_URL` (`http://localhost:8000`). |
-
-Root `.env` is referenced by Compose `env_file` (`SECRET_KEY`, `CORS_ORIGINS`, admin bootstrap, etc.).
+| Service | Port |
+|---------|------|
+| `db` | 5432 |
+| `backend` | 8000 |
+| `frontend` | 80 |
 
 ---
 
@@ -390,58 +490,53 @@ Root `.env` is referenced by Compose `env_file` (`SECRET_KEY`, `CORS_ORIGINS`, a
 
 | Location | Command |
 |----------|---------|
-| Backend | `alembic revision --autogenerate -m "msg"` / `alembic upgrade head` |
-| Backend | `uvicorn main:app --reload` |
+| Backend | `alembic upgrade head` / `uvicorn main:app --reload` |
 | Frontend | `npm run dev` / `npm run build` |
-| Docker | `docker compose up --build` (from `docker/`) |
+| Docker | `docker compose up --build` |
 
 ---
 
 ## Roadmap (ideas)
 
 - Automated tests (pytest + Vitest/Playwright).  
-- Pagination and filters for roster, fleet logs, and leave calendar.  
-- Exportable audit trail (CSV/PDF) — leave approval logs already persisted in DB.  
-- Real-time notifications (WebSocket) for fleet and leave/compensation queues.  
-- Password policy and 2FA for sensitive accounts.
+- **WhatsApp / IA**: send export text via bot using `scale_export_service`.  
+- PDF export of published scales.  
+- Real-time notifications (WebSocket) for approval queues.  
+- Password policy and 2FA.
 
 ---
 
 ## Planned technical improvements
 
-- Commit **`package-lock.json`** consistently with the frontend Dockerfile.  
-- CI (lint + test + build) on GitHub Actions or similar.  
-- Document **`VITE_API_URL`** for staging/production domains.
+- Commit **`package-lock.json`** consistently.  
+- CI (lint + test + build).  
+- Staging/production **`VITE_API_URL`** documentation.
 
 ---
 
 ## Security
 
-- **bcrypt** passwords; **HS256** JWT; token validation on protected routes.  
-- **Inactive** or **non-approved** accounts cannot use `get_current_approved_user` routes.  
-- CORS limited to configured origins.  
-- Do **not** commit real secrets in `.env` (use `.env.example`).  
-- Production: HTTPS reverse proxy, rotate `SECRET_KEY`, Postgres backups, least privilege for roles.
+- **bcrypt** + **JWT**; RBAC per route.  
+- Scale export and draft scales respect role and publication state.  
+- Do **not** commit secrets in `.env`.  
+- Production: HTTPS, rotate `SECRET_KEY`, Postgres backups.
 
 ---
 
 ## License
 
-This project is licensed under the **MIT License** — see [`LICENSE`](LICENSE).
+**MIT License** — see [`LICENSE`](LICENSE).
 
 ---
 
 ## Author
-Vinícius Pires
-[E-mail](viinycampos19@hotmail.com)
-[LinkedIN](https://www.linkedin.com/in/vin%C3%ADcius-pires-544a88241/)
-**Pelotão System** — code and docs maintained in this repository.  
 
+Vinícius Pires · [E-mail](viinycampos19@hotmail.com) · [LinkedIn](https://www.linkedin.com/in/vin%C3%ADcius-pires-544a88241/)
 
 ---
 
 <div align="center">
 
-<sub>English (en-US) documentation aligned with the current repository (FastAPI + React + PostgreSQL + Docker). Portuguese: [READMEptbr.md](READMEptbr.md).</sub>
+<sub>English (en-US) documentation aligned with the current repository. Portuguese: [READMEptbr.md](READMEptbr.md).</sub>
 
 </div>

@@ -66,6 +66,7 @@ class UserProfileUpdate(BaseModel):
     patente: str | None = Field(default=None, min_length=1, max_length=64)
     nome_guerra: str | None = Field(default=None, min_length=1, max_length=128)
     is_active: bool | None = None
+    role: RoleEnum | None = None
 
 
 class EfetivoReorderBody(BaseModel):

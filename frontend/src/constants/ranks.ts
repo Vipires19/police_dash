@@ -20,3 +20,30 @@ export function patenteRank(patente: string): number {
   const hit = Object.keys(PATENTE_ORDER).find((k) => k.toUpperCase() === t.toUpperCase());
   return hit !== undefined ? PATENTE_ORDER[hit]! : 99;
 }
+
+/** Agrupamento visual do efetivo (não altera ordenação no backend). */
+export type VisualRankGroup = "OFFICERS" | "NCOS" | "ENLISTED";
+
+/** Seção visual separada para policiais com role ESTAGIO. */
+export type EstagioVisualGroup = "ESTAGIO";
+
+export const ESTAGIO_SECTION_LABEL = "Estágio";
+
+export const VISUAL_GROUP_LABELS: Record<VisualRankGroup, string> = {
+  OFFICERS: "Oficiais",
+  NCOS: "SubTen / Sargentos",
+  ENLISTED: "Cabos / Soldados",
+};
+
+const VISUAL_GROUP_ORDER: VisualRankGroup[] = ["OFFICERS", "NCOS", "ENLISTED"];
+
+export function visualRankGroup(patente: string): VisualRankGroup {
+  const rank = patenteRank(patente);
+  if (rank <= 1) return "OFFICERS";
+  if (rank <= 5) return "NCOS";
+  return "ENLISTED";
+}
+
+export function visualGroupSortIndex(group: VisualRankGroup): number {
+  return VISUAL_GROUP_ORDER.indexOf(group);
+}
