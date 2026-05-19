@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { LeaveRequestModal } from "@/components/folgas/LeaveRequestModal";
 import { MonthlyCalendar } from "@/components/folgas/MonthlyCalendar";
 import { leaveStatusBadgeClass, leaveStatusLabel } from "@/components/folgas/statusStyles";
+import { leaveTypeLabel } from "@/components/folgas/leaveTypeLabels";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
@@ -11,8 +12,11 @@ import type {
   CalendarDay,
   CalendarLeaveEntry,
   LeaveCalendarResponse,
+  LeaveStatus,
   UserCompensationAvailable,
 } from "@/types/leaves";
+
+const CANCELLABLE_LEAVE_STATUSES: LeaveStatus[] = ["PENDING", "REVIEW", "APPROVED"];
 
 function sortEntries(entries: CalendarLeaveEntry[]): CalendarLeaveEntry[] {
   return [...entries].sort((a, b) => {
@@ -32,6 +36,10 @@ export function FolgasPage() {
   const [err, setErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [cancelTargetId, setCancelTargetId] = useState<number | null>(null);
+  const [cancelMotivo, setCancelMotivo] = useState("");
+  const [cancelBusy, setCancelBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -68,7 +76,14 @@ export function FolgasPage() {
       if (y === year && m === month) return prev;
       return null;
     });
+    setCancelTargetId(null);
+    setCancelMotivo("");
   }, [year, month]);
+
+  useEffect(() => {
+    setCancelTargetId(null);
+    setCancelMotivo("");
+  }, [selected]);
 
   useEffect(() => {
     if (!monthBookable) setSelected(null);
@@ -83,6 +98,32 @@ export function FolgasPage() {
     setSelected(iso);
     setModalOpen(true);
   };
+
+  const canCancelEntry = (e: CalendarLeaveEntry) =>
+    e.user_id === user?.id && CANCELLABLE_LEAVE_STATUSES.includes(e.status);
+
+  async function confirmCancelLeave(leaveId: number, status: LeaveStatus) {
+    if (!token) return;
+    const needsMotivo = status === "APPROVED";
+    if (needsMotivo && cancelMotivo.trim().length < 3) {
+      setErr("Informe o motivo do cancelamento (mín. 3 caracteres).");
+      return;
+    }
+    setCancelBusy(true);
+    setErr(null);
+    setMsg(null);
+    try {
+      await leavesApi.cancelLeave(token, leaveId, cancelMotivo.trim() || null);
+      setMsg("Folga cancelada. Você pode solicitar outro dia no calendário.");
+      setCancelTargetId(null);
+      setCancelMotivo("");
+      await load();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.detail : "Não foi possível cancelar a folga");
+    } finally {
+      setCancelBusy(false);
+    }
+  }
 
   const shiftMonth = (delta: number) => {
     const d = new Date(year, month - 1 + delta, 1);
@@ -103,6 +144,11 @@ export function FolgasPage() {
       </header>
 
       {err && <p className="mb-4 text-sm text-red-400">{err}</p>}
+      {msg && (
+        <p className="mb-4 rounded-md border border-emerald-900/50 bg-emerald-950/40 px-4 py-3 text-sm text-emerald-200">
+          {msg}
+        </p>
+      )}
 
       {cal && (
         <div className="mb-6 grid gap-4 rounded-xl border border-zinc-800/80 bg-zinc-950/50 p-4 sm:grid-cols-3">
@@ -170,10 +216,63 @@ export function FolgasPage() {
                   >
                     <p className="font-medium">
                       {e.patente} {e.nome_guerra}
+                      {e.user_id === user?.id && (
+                        <span className="ml-1 font-normal text-zinc-500">(você)</span>
+                      )}
                     </p>
                     <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-400">
-                      {e.leave_type === "MONTHLY" ? "Mensal" : "Compensação"} · {leaveStatusLabel(e.status)}
+                      {leaveTypeLabel(e.leave_type)} · {leaveStatusLabel(e.status)}
                     </p>
+                    {canCancelEntry(e) && cancelTargetId !== e.id && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCancelTargetId(e.id);
+                          setCancelMotivo("");
+                          setErr(null);
+                          setMsg(null);
+                        }}
+                        className="mt-2 w-full rounded border border-zinc-600 py-1.5 text-[10px] font-medium uppercase tracking-wide text-zinc-300 hover:bg-zinc-900/80"
+                      >
+                        Cancelar folga
+                      </button>
+                    )}
+                    {cancelTargetId === e.id && (
+                      <div className="mt-2 space-y-2">
+                        <textarea
+                          placeholder={
+                            e.status === "APPROVED"
+                              ? "Motivo (ex.: remarcar para o dia 20)"
+                              : "Motivo opcional"
+                          }
+                          rows={2}
+                          className="w-full rounded border border-zinc-700 bg-black/50 px-2 py-1.5 text-[11px] text-zinc-100"
+                          value={cancelMotivo}
+                          onChange={(ev) => setCancelMotivo(ev.target.value)}
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={cancelBusy}
+                            onClick={() => void confirmCancelLeave(e.id, e.status)}
+                            className="flex-1 rounded border border-red-800/80 py-1.5 text-[10px] text-red-200 disabled:opacity-50"
+                          >
+                            {cancelBusy ? "Cancelando…" : "Confirmar"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={cancelBusy}
+                            onClick={() => {
+                              setCancelTargetId(null);
+                              setCancelMotivo("");
+                            }}
+                            className="flex-1 rounded border border-zinc-600 py-1.5 text-[10px] text-zinc-400"
+                          >
+                            Voltar
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </li>
                 ))}
                 {selectedDay.entries.length === 0 && (
@@ -188,6 +287,7 @@ export function FolgasPage() {
       <LeaveRequestModal
         open={modalOpen}
         dateIso={selected}
+        token={token}
         availableCredits={credits}
         onClose={() => setModalOpen(false)}
         onSubmit={async (payload) => {

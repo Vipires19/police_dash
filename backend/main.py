@@ -49,6 +49,7 @@ app.include_router(vehicles_routes.router)
 app.include_router(leaves_routes.router)
 app.include_router(compensations_routes.router)
 app.include_router(vacations_routes.router)
+app.include_router(vacations_routes.absences_router)
 app.include_router(service_scales_routes.router)
 
 

@@ -9,6 +9,7 @@ export interface Vehicle {
   modelo: string;
   modalidade: VehicleModalidade;
   status: VehicleStatus;
+  observacoes: string | null;
   baixada_at: string | null;
   retorno_operacao_at: string | null;
   created_at: string;
@@ -50,4 +51,14 @@ export interface VehicleUpdatePayload {
   prefixo?: string;
   modelo?: string;
   modalidade?: VehicleModalidade;
+  status?: VehicleStatus;
+  observacoes?: string | null;
+  status_motivo?: string;
 }
+
+/** Status editáveis no formulário operacional de viaturas. */
+export const VEHICLE_EDIT_STATUS_OPTIONS: VehicleStatus[] = [
+  "OPERANDO",
+  "MANUTENCAO",
+  "BAIXADA",
+];

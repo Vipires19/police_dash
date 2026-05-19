@@ -1,6 +1,29 @@
-export type VacationType = "FERIAS" | "LP";
+export type VacationType =
+  | "FERIAS"
+  | "LP"
+  | "LTS"
+  | "CURSO"
+  | "ESTAGIO_OPERACIONAL"
+  | "OUTROS";
 
-export type VacationStatus = "PENDING" | "REVIEW" | "APPROVED" | "REJECTED" | "CANCELLED";
+export type VacationStatus =
+  | "PENDING"
+  | "REVIEW"
+  | "APPROVED"
+  | "REJECTED"
+  | "CANCELLED"
+  | "REVERTED";
+
+export const ABSENCE_TYPES: VacationType[] = [
+  "FERIAS",
+  "LP",
+  "LTS",
+  "CURSO",
+  "ESTAGIO_OPERACIONAL",
+  "OUTROS",
+];
+
+export const RESTRICTED_ABSENCE_TYPES: VacationType[] = ["FERIAS", "LP"];
 
 export interface CalendarVacationEntry {
   id: number;
@@ -13,6 +36,7 @@ export interface CalendarVacationEntry {
   start_date: string;
   end_date: string;
   total_days: number;
+  notes?: string | null;
   operational_rank: number;
 }
 
@@ -46,6 +70,7 @@ export interface VacationRequestPublic {
   total_days: number;
   status: VacationStatus;
   review_reason: string | null;
+  notes: string | null;
   decision_reason: string | null;
   approved_by_id: number | null;
   approved_at: string | null;

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
+import { VehicleEditModal } from "@/components/vehicle/VehicleEditModal";
 import { VehicleStatusBadge } from "@/components/vehicle/VehicleStatusBadge";
 import { useAuth } from "@/hooks/AuthContext";
-import type { Vehicle, VehicleLog, VehicleStatus } from "@/types/vehicle";
+import { VEHICLE_EDITOR_ROLES } from "@/types";
+import type { Vehicle, VehicleLog, VehicleStatus, VehicleUpdatePayload } from "@/types/vehicle";
 import { ApiError } from "@/services/api";
 import * as vehiclesApi from "@/services/vehiclesApi";
 
@@ -16,7 +18,7 @@ function groupByModalidade(list: Vehicle[]) {
 
 export function ViaturasPage() {
   const { token, user } = useAuth();
-  const canEdit = user?.role !== "ESTAGIO";
+  const canEdit = user ? VEHICLE_EDITOR_ROLES.includes(user.role) : false;
 
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +27,8 @@ export function ViaturasPage() {
   const [createOpen, setCreateOpen] = useState(false);
   const [detail, setDetail] = useState<Vehicle | null>(null);
   const [detailLogs, setDetailLogs] = useState<VehicleLog[]>([]);
+  const [editTarget, setEditTarget] = useState<Vehicle | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [statusTarget, setStatusTarget] = useState<Vehicle | null>(null);
   const [statusVal, setStatusVal] = useState<VehicleStatus>("OPERANDO");
   const [motivo, setMotivo] = useState("");
@@ -106,6 +110,24 @@ export function ViaturasPage() {
     }
   }
 
+  async function onEditSave(payload: VehicleUpdatePayload) {
+    if (!token || !editTarget) return;
+    const vid = editTarget.id;
+    setSaving(true);
+    setEditError(null);
+    setError(null);
+    try {
+      const updated = await vehiclesApi.updateVehicle(token, vid, payload);
+      setEditTarget(null);
+      await load();
+      setDetail((d) => (d && d.id === vid ? updated : d));
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.detail : "Erro ao salvar viatura");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function onStatusSave(e: React.FormEvent) {
     e.preventDefault();
     if (!token || !statusTarget) return;
@@ -165,8 +187,22 @@ export function ViaturasPage() {
         <p className="text-sm text-zinc-500">Carregando…</p>
       ) : (
         <div className="space-y-12">
-          <ModalidadeSection title="Força Tática (FT)" vehicles={ft} onOpen={setDetail} canEdit={canEdit} onStatus={openStatus} />
-          <ModalidadeSection title="ROCAM" vehicles={rocam} onOpen={setDetail} canEdit={canEdit} onStatus={openStatus} />
+          <ModalidadeSection
+            title="Força Tática (FT)"
+            vehicles={ft}
+            onOpen={setDetail}
+            canEdit={canEdit}
+            onEdit={setEditTarget}
+            onStatus={openStatus}
+          />
+          <ModalidadeSection
+            title="ROCAM"
+            vehicles={rocam}
+            onOpen={setDetail}
+            canEdit={canEdit}
+            onEdit={setEditTarget}
+            onStatus={openStatus}
+          />
         </div>
       )}
 
@@ -241,6 +277,21 @@ export function ViaturasPage() {
         </div>
       )}
 
+      {editTarget && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center">
+          <VehicleEditModal
+            vehicle={editTarget}
+            saving={saving}
+            error={editError}
+            onClose={() => {
+              setEditTarget(null);
+              setEditError(null);
+            }}
+            onSubmit={onEditSave}
+          />
+        </div>
+      )}
+
       {statusTarget && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center">
           <form
@@ -297,6 +348,9 @@ export function ViaturasPage() {
                 <p className="text-sm text-zinc-400">
                   {detail.placa} · {detail.modelo}
                 </p>
+                {detail.observacoes ? (
+                  <p className="mt-2 text-xs text-zinc-500">{detail.observacoes}</p>
+                ) : null}
                 <div className="mt-2">
                   <VehicleStatusBadge status={detail.status} />
                 </div>
@@ -307,13 +361,25 @@ export function ViaturasPage() {
             </div>
             <div className="flex flex-wrap gap-2 border-b border-zinc-800 px-4 py-3">
               {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => openStatus(detail)}
-                  className="rounded-md border border-zinc-600 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
-                >
-                  Alterar status
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditTarget(detail);
+                    }}
+                    className="rounded-md border border-zinc-500 bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-white"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openStatus(detail)}
+                    className="rounded-md border border-zinc-600 px-3 py-1.5 text-xs text-zinc-100 hover:bg-zinc-900"
+                  >
+                    Alterar status
+                  </button>
+                </>
               )}
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -357,12 +423,14 @@ function ModalidadeSection({
   vehicles,
   onOpen,
   canEdit,
+  onEdit,
   onStatus,
 }: {
   title: string;
   vehicles: Vehicle[];
   onOpen: (v: Vehicle) => void;
   canEdit: boolean;
+  onEdit: (v: Vehicle) => void;
   onStatus: (v: Vehicle) => void;
 }) {
   return (
@@ -388,13 +456,22 @@ function ModalidadeSection({
                 </div>
               </button>
               {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => onStatus(v)}
-                  className="mt-3 w-full rounded-md border border-zinc-700 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900"
-                >
-                  Status
-                </button>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(v)}
+                    className="flex-1 rounded-md border border-zinc-500 bg-zinc-100 py-1.5 text-xs font-medium text-zinc-900 hover:bg-white"
+                  >
+                    Editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onStatus(v)}
+                    className="flex-1 rounded-md border border-zinc-700 py-1.5 text-xs text-zinc-300 hover:bg-zinc-900"
+                  >
+                    Status
+                  </button>
+                </div>
               )}
             </article>
           ))}

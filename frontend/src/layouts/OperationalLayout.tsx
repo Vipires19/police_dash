@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
   ClipboardList,
+  Gift,
   Palmtree,
   LayoutDashboard,
   CalendarRange,
@@ -42,8 +43,9 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
     { to: "/efetivo", label: "Efetivo", icon: Users },
     { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
     { to: "/viaturas", label: "Viaturas", icon: Truck },
+    { to: "/compensacoes", label: "Compensações", icon: Gift },
     { to: "/folgas", label: "Folgas", icon: CalendarDays },
-    { to: "/ferias", label: "Férias", icon: Palmtree },
+    { to: "/afastamentos", label: "Afastamentos", icon: Palmtree },
     { to: "/perfil", label: "Perfil", icon: UserCircle },
   ];
 

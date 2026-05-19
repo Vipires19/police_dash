@@ -12,6 +12,7 @@ from database.base import Base
 class LeaveType(str, enum.Enum):
     MONTHLY = "MONTHLY"
     COMPENSATION = "COMPENSATION"
+    DS = "DS"
 
 
 class LeaveStatus(str, enum.Enum):

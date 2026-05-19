@@ -2,6 +2,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field, model_validator
 
+from core.absence_labels import is_restricted_absence
 from models.vacation import VacationStatus, VacationType
 
 ALLOWED_VACATION_DURATIONS = (15, 30)
@@ -11,14 +12,32 @@ class VacationRequestCreate(BaseModel):
     start_date: date
     end_date: date
     vacation_type: VacationType
+    notes: str | None = Field(default=None, max_length=4000)
 
     @model_validator(mode="after")
     def validate_range(self) -> "VacationRequestCreate":
         if self.end_date < self.start_date:
             raise ValueError("Data final deve ser igual ou posterior à inicial")
         total = (self.end_date - self.start_date).days + 1
-        if total not in ALLOWED_VACATION_DURATIONS:
-            raise ValueError("Período permitido apenas de 15 ou 30 dias corridos")
+        if is_restricted_absence(self.vacation_type):
+            if total not in ALLOWED_VACATION_DURATIONS:
+                raise ValueError("Férias e LP: período permitido apenas de 15 ou 30 dias corridos")
+        elif total < 1:
+            raise ValueError("Período inválido")
+        return self
+
+
+class VacationRequestUpdate(BaseModel):
+    start_date: date | None = None
+    end_date: date | None = None
+    vacation_type: VacationType | None = None
+    notes: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def validate_partial_range(self) -> "VacationRequestUpdate":
+        if self.start_date is not None and self.end_date is not None:
+            if self.end_date < self.start_date:
+                raise ValueError("Data final deve ser igual ou posterior à inicial")
         return self
 
 
@@ -41,6 +60,7 @@ class CalendarVacationEntry(BaseModel):
     start_date: date
     end_date: date
     total_days: int
+    notes: str | None = None
     operational_rank: int
 
     model_config = {"from_attributes": False}
@@ -76,6 +96,7 @@ class VacationRequestPublic(BaseModel):
     total_days: int
     status: VacationStatus
     review_reason: str | None
+    notes: str | None
     decision_reason: str | None
     approved_by_id: int | None
     approved_at: datetime | None

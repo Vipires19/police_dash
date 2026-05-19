@@ -3,7 +3,7 @@ import type { LeaveCalendarResponse, LeaveRequestPublic } from "@/types/leaves";
 
 export interface LeaveRequestPayload {
   leave_on: string;
-  leave_type: "MONTHLY" | "COMPENSATION";
+  leave_type: "MONTHLY" | "COMPENSATION" | "DS";
   user_compensation_id?: number | null;
 }
 

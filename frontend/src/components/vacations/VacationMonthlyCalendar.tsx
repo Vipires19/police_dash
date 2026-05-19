@@ -1,5 +1,5 @@
-import type { VacationCalendarDay } from "@/types/vacation";
-import { vacationStatusCellClass } from "./statusStyles";
+import type { VacationCalendarDay, VacationType } from "@/types/vacation";
+import { ABSENCE_LEGEND, vacationStatusCellClass, vacationTypeDotClass } from "./statusStyles";
 
 const WEEK = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
 
@@ -77,6 +77,7 @@ export function VacationMonthlyCalendar({
           }
           const day = byDate.get(c.iso);
           const statuses = new Set(day?.entries.map((e) => e.status) ?? []);
+          const typesOnDay = [...new Set(day?.entries.map((e) => e.vacation_type) ?? [])] as VacationType[];
           const tone = day ? vacationStatusCellClass(statuses) : "bg-zinc-900/30 ring-1 ring-zinc-800/40";
           const sel = selected === c.iso;
           const baseCell = [
@@ -100,9 +101,25 @@ export function VacationMonthlyCalendar({
               {day && day.active_count > 0 && (
                 <span className="text-[9px] text-zinc-500">{day.active_count} pol.</span>
               )}
+              {typesOnDay.length > 0 && (
+                <span className="mt-0.5 flex gap-0.5">
+                  {typesOnDay.slice(0, 4).map((t) => (
+                    <span key={t} className={`h-1.5 w-1.5 rounded-full ${vacationTypeDotClass(t)}`} />
+                  ))}
+                </span>
+              )}
             </button>
           );
         })}
+      </div>
+      <div className="mt-4 flex flex-wrap gap-3 border-t border-zinc-800/80 pt-3">
+        {ABSENCE_LEGEND.map(({ type, label }) => (
+          <span key={type} className="flex items-center gap-1.5 text-[10px] text-zinc-400">
+            <span className={`h-2 w-2 rounded-full ${vacationTypeDotClass(type)}`} />
+            {label}
+          </span>
+        ))}
+        <span className="text-[10px] text-amber-400/90">crít. = 2+ férias/LP no dia</span>
       </div>
     </div>
   );

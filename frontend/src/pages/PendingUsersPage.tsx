@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { leaveStatusBadgeClass, leaveStatusLabel } from "@/components/folgas/statusStyles";
+import { leaveTypeLabel } from "@/components/folgas/leaveTypeLabels";
 import {
   vacationStatusBadgeClass,
   vacationStatusLabel,
@@ -9,29 +10,23 @@ import {
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
 import type { Role, User } from "@/types";
-import type { CompensationEventPublic, CompensationType, LeaveRequestPublic } from "@/types/leaves";
+import type { LeaveRequestPublic } from "@/types/leaves";
+import type { CompensationEventPublic } from "@/types/compensations";
+import { COMPENSATION_TYPE_LABELS } from "@/types/compensations";
 import type { VacationRequestPublic } from "@/types/vacation";
 import { ApiError } from "@/services/api";
 import * as authApi from "@/services/authApi";
 import * as compensationsApi from "@/services/compensationsApi";
 import * as leavesApi from "@/services/leavesApi";
-import * as vacationsApi from "@/services/vacationsApi";
+import * as absencesApi from "@/services/absencesApi";
 import * as usersApi from "@/services/usersApi";
 
 const ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL", "ESTAGIO"];
 
-const EVENT_LABELS: Record<CompensationType, string> = {
-  CPJ_SUPPORT: "Apoio CPJ / operacional (≥4h)",
-  WEAPON_OCCURRENCE: "Ocorrência com armas",
-  RELEVANT_OCCURRENCE: "Ocorrência de grande relevância (N90/TAT)",
-  TWO_WANTED: "02 procurados",
-  FIVE_FLAGRANTS: "05 flagrantes",
-};
-
-type TabId = "cadastros" | "folgas" | "ferias" | "compensacoes";
+type TabId = "cadastros" | "folgas" | "afastamentos" | "compensacoes";
 
 export function PendingUsersPage() {
-  const { token, refreshUser, isApprover, canRegisterCompensation } = useAuth();
+  const { token, refreshUser, isApprover } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabOptions = useMemo(() => {
@@ -39,22 +34,23 @@ export function PendingUsersPage() {
     if (isApprover) {
       o.push({ id: "cadastros", label: "Cadastros pendentes" });
       o.push({ id: "folgas", label: "Folgas pendentes" });
-      o.push({ id: "ferias", label: "Férias pendentes" });
+      o.push({ id: "afastamentos", label: "Afastamentos pendentes" });
     }
-    if (isApprover || canRegisterCompensation) {
+    if (isApprover) {
       o.push({ id: "compensacoes", label: "Compensações pendentes" });
     }
     return o;
-  }, [isApprover, canRegisterCompensation]);
+  }, [isApprover]);
 
-  const defaultTab: TabId = useMemo(() => {
-    if (!isApprover && canRegisterCompensation) return "compensacoes";
-    return "cadastros";
-  }, [isApprover, canRegisterCompensation]);
+  const defaultTab: TabId = "cadastros";
 
-  const rawTab = searchParams.get("tab") as TabId | null;
+  const rawTab = searchParams.get("tab");
+  const normalizedTab = rawTab === "ferias" ? "afastamentos" : rawTab;
   const activeTab: TabId = useMemo(() => {
-    const t = rawTab && tabOptions.some((x) => x.id === rawTab) ? rawTab : defaultTab;
+    const t =
+      normalizedTab && tabOptions.some((x) => x.id === normalizedTab)
+        ? (normalizedTab as TabId)
+        : defaultTab;
     return t;
   }, [rawTab, tabOptions, defaultTab]);
 
@@ -99,10 +95,8 @@ export function PendingUsersPage() {
 
       {activeTab === "cadastros" && isApprover && <CadastrosPendentesSection token={token} refreshUser={refreshUser} />}
       {activeTab === "folgas" && isApprover && <FolgasPendentesSection token={token} />}
-      {activeTab === "ferias" && isApprover && <FeriasPendentesSection token={token} />}
-      {activeTab === "compensacoes" && (isApprover || canRegisterCompensation) && (
-        <CompensacoesSection token={token} isApprover={isApprover} canRegisterCompensation={canRegisterCompensation} />
-      )}
+      {activeTab === "afastamentos" && isApprover && <AfastamentosPendentesSection token={token} />}
+      {activeTab === "compensacoes" && isApprover && <CompensacoesApprovalSection token={token} />}
     </OperationalLayout>
   );
 }
@@ -228,7 +222,7 @@ function CadastrosPendentesSection({
   );
 }
 
-function FeriasPendentesSection({ token }: { token: string | null }) {
+function AfastamentosPendentesSection({ token }: { token: string | null }) {
   const [rows, setRows] = useState<VacationRequestPublic[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -238,7 +232,7 @@ function FeriasPendentesSection({ token }: { token: string | null }) {
     if (!token) return;
     setErr(null);
     try {
-      const data = await vacationsApi.listPendingVacations(token);
+      const data = await absencesApi.listPendingAbsences(token);
       setRows(data);
     } catch (e) {
       setErr(e instanceof ApiError ? e.detail : "Erro ao carregar fila");
@@ -255,9 +249,9 @@ function FeriasPendentesSection({ token }: { token: string | null }) {
     setMsg(null);
     try {
       if (kind === "approve") {
-        await vacationsApi.approveVacation(token, id, reason || null);
+        await absencesApi.approveAbsence(token, id, reason || null);
       } else {
-        await vacationsApi.rejectVacation(token, id, reason);
+        await absencesApi.rejectAbsence(token, id, reason);
       }
       setMsg("Atualizado.");
       await load();
@@ -276,9 +270,9 @@ function FeriasPendentesSection({ token }: { token: string | null }) {
 
   return (
     <section className="space-y-4">
-      <h3 className="text-lg font-semibold text-zinc-100">Férias / LP pendentes</h3>
+      <h3 className="text-lg font-semibold text-zinc-100">Afastamentos pendentes</h3>
       <p className="text-sm text-zinc-500">
-        Solicitações em análise ou com revisão automática (simultaneidade por dia) aguardam deferimento explícito.
+        Férias/LP com revisão de simultaneidade e demais tipos aguardam deferimento do comando.
       </p>
       {err && <p className="text-sm text-red-400">{err}</p>}
       {msg && <p className="text-sm text-emerald-400">{msg}</p>}
@@ -429,7 +423,7 @@ function FolgasPendentesSection({ token }: { token: string | null }) {
                   </span>
                 </p>
                 <p className="mt-1 text-xs text-zinc-500">
-                  {r.leave_type === "MONTHLY" ? "Mensal" : "Compensação"} · ID #{r.id}
+                  {leaveTypeLabel(r.leave_type)} · ID #{r.id}
                 </p>
                 {r.review_reason && (
                   <p className="mt-2 text-xs text-amber-200/90">Revisão automática: {r.review_reason}</p>
@@ -500,56 +494,24 @@ function LeaveDecisionRow({
   );
 }
 
-function CompensacoesSection({
-  token,
-  isApprover,
-  canRegisterCompensation,
-}: {
-  token: string | null;
-  isApprover: boolean;
-  canRegisterCompensation: boolean;
-}) {
-  const [efetivo, setEfetivo] = useState<User[]>([]);
+function CompensacoesApprovalSection({ token }: { token: string | null }) {
   const [pending, setPending] = useState<CompensationEventPublic[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
-  const [eventType, setEventType] = useState<CompensationType>("CPJ_SUPPORT");
-  const [motivo, setMotivo] = useState("");
-  const [picked, setPicked] = useState<Record<number, boolean>>({});
-  const [busy, setBusy] = useState(false);
-
-  const loadEfetivo = useCallback(async () => {
-    if (!token || !canRegisterCompensation) return;
-    try {
-      const rows = await usersApi.listEfetivo(token);
-      setEfetivo(rows.filter((u) => u.status === "APPROVED"));
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.detail : "Erro ao carregar efetivo");
-    }
-  }, [token, canRegisterCompensation]);
 
   const loadPending = useCallback(async () => {
-    if (!token || !isApprover) return;
+    if (!token) return;
     try {
       const rows = await compensationsApi.listPendingCompensations(token);
       setPending(rows);
     } catch (e) {
       setErr(e instanceof ApiError ? e.detail : "Erro ao carregar pendências");
     }
-  }, [token, isApprover]);
-
-  useEffect(() => {
-    void loadEfetivo();
-  }, [loadEfetivo]);
+  }, [token]);
 
   useEffect(() => {
     void loadPending();
   }, [loadPending]);
-
-  const selectedIds = useMemo(
-    () => Object.entries(picked).filter(([, v]) => v).map(([k]) => Number(k)),
-    [picked],
-  );
 
   const decide = useCallback(
     async (id: number, kind: "approve" | "reject", motivoText: string) => {
@@ -571,113 +533,38 @@ function CompensacoesSection({
     [token, loadPending],
   );
 
-  const submitEvent = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!token) return;
-    setBusy(true);
-    setMsg(null);
-    setErr(null);
-    try {
-      await compensationsApi.createCompensationEvent(token, {
-        event_type: eventType,
-        motivo,
-        participant_user_ids: selectedIds,
-      });
-      setMsg("Evento registrado e encaminhado ao comando.");
-      setMotivo("");
-      setPicked({});
-      await loadPending();
-    } catch (ex) {
-      setErr(ex instanceof ApiError ? ex.detail : "Falha ao criar evento");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <section className="space-y-8">
-      <h3 className="text-lg font-semibold text-zinc-100">Compensações</h3>
+    <section className="space-y-6">
+      <p className="text-sm text-zinc-400">
+        Criação em <a href="/compensacoes" className="text-sky-400 underline">Compensações</a>. Aqui só aprovação.
+      </p>
       {err && <p className="text-sm text-red-400">{err}</p>}
       {msg && <p className="text-sm text-emerald-400">{msg}</p>}
-
-      {canRegisterCompensation && (
-        <div className="rounded-xl border border-zinc-800/80 bg-black/30 p-6 shadow-inner shadow-black/25">
-          <h4 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">Novo evento operacional</h4>
-          <form className="mt-4 space-y-4" onSubmit={submitEvent}>
-            <div>
-              <label className="text-xs text-zinc-500">Tipo operacional</label>
-              <select
-                className="mt-1 w-full max-w-xl rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-                value={eventType}
-                onChange={(e) => setEventType(e.target.value as CompensationType)}
-              >
-                {(Object.keys(EVENT_LABELS) as CompensationType[]).map((k) => (
-                  <option key={k} value={k}>
-                    {EVENT_LABELS[k]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs text-zinc-500">Motivo / relato (BOPM/BOPC quando aplicável)</label>
-              <textarea
-                className="mt-1 min-h-[100px] w-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100"
-                value={motivo}
-                onChange={(e) => setMotivo(e.target.value)}
-                required
-                minLength={3}
-              />
-            </div>
-            <div>
-              <p className="text-xs font-medium text-zinc-500">Envolvidos</p>
-              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto rounded-lg border border-zinc-800/80 p-3">
-                {efetivo.map((u) => (
-                  <label key={u.id} className="flex cursor-pointer items-center gap-2 text-sm text-zinc-200">
-                    <input
-                      type="checkbox"
-                      checked={!!picked[u.id]}
-                      onChange={(e) => setPicked((p) => ({ ...p, [u.id]: e.target.checked }))}
-                    />
-                    {u.patente} {u.nome_guerra}
-                  </label>
-                ))}
+      <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-6">
+        <h4 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">Pendências de comando</h4>
+        <ul className="mt-4 space-y-4">
+          {pending.map((ev) => (
+            <li key={ev.id} className="rounded-lg border border-zinc-800/60 bg-black/30 p-4">
+              <div>
+                <p className="text-sm font-medium text-zinc-100">{COMPENSATION_TYPE_LABELS[ev.event_type]}</p>
+                <p className="mt-1 text-xs text-zinc-500">Evento #{ev.id}</p>
+                {ev.created_by_label && (
+                  <p className="mt-1 text-xs text-zinc-500">Registrado por: {ev.created_by_label}</p>
+                )}
+                <p className="mt-2 whitespace-pre-wrap text-xs text-zinc-300">{ev.motivo}</p>
+                <p className="mt-2 text-[10px] uppercase tracking-wide text-zinc-500">
+                  Envolvidos: {ev.participant_user_ids.join(", ")}
+                </p>
               </div>
-            </div>
-            <button
-              type="submit"
-              disabled={busy || selectedIds.length === 0}
-              className="rounded-lg border border-sky-800/80 bg-sky-950/40 px-4 py-2 text-sm font-medium text-sky-100 hover:bg-sky-900/40 disabled:opacity-50"
-            >
-              {busy ? "Enviando…" : "Registrar evento"}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {isApprover && (
-        <div className="rounded-xl border border-zinc-800/80 bg-zinc-950/40 p-6">
-          <h4 className="text-sm font-semibold uppercase tracking-wider text-zinc-300">Pendências de comando</h4>
-          <ul className="mt-4 space-y-4">
-            {pending.map((ev) => (
-              <li key={ev.id} className="rounded-lg border border-zinc-800/60 bg-black/30 p-4">
-                <div>
-                  <p className="text-sm font-medium text-zinc-100">{EVENT_LABELS[ev.event_type]}</p>
-                  <p className="mt-1 text-xs text-zinc-500">Evento #{ev.id}</p>
-                  <p className="mt-2 whitespace-pre-wrap text-xs text-zinc-300">{ev.motivo}</p>
-                  <p className="mt-2 text-[10px] uppercase tracking-wide text-zinc-500">
-                    Envolvidos: {ev.participant_user_ids.join(", ")}
-                  </p>
-                </div>
-                <CompEventDecisionRow
-                  onApprove={(m) => void decide(ev.id, "approve", m)}
-                  onReject={(m) => void decide(ev.id, "reject", m)}
-                />
-              </li>
-            ))}
-            {pending.length === 0 && <p className="text-sm text-zinc-500">Nenhum evento pendente.</p>}
-          </ul>
-        </div>
-      )}
+              <CompEventDecisionRow
+                onApprove={(m) => void decide(ev.id, "approve", m)}
+                onReject={(m) => void decide(ev.id, "reject", m)}
+              />
+            </li>
+          ))}
+          {pending.length === 0 && <p className="text-sm text-zinc-500">Nenhum evento pendente.</p>}
+        </ul>
+      </div>
     </section>
   );
 }

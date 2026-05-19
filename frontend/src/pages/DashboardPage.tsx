@@ -13,6 +13,9 @@ import * as vehiclesApi from "@/services/vehiclesApi";
 import * as leavesApi from "@/services/leavesApi";
 import * as vacationsApi from "@/services/vacationsApi";
 import * as scalesApi from "@/services/serviceScalesApi";
+import * as compensationsApi from "@/services/compensationsApi";
+import type { CompensationDashboardSummary } from "@/types/compensations";
+import { COMPENSATION_TYPE_LABELS } from "@/types/compensations";
 
 const FEED_LIMIT = 3;
 
@@ -43,6 +46,8 @@ export function DashboardPage() {
   const [vacationErr, setVacationErr] = useState<string | null>(null);
   const [exportScaleId, setExportScaleId] = useState<number | null>(null);
   const [exportScaleTitle, setExportScaleTitle] = useState("");
+  const [compSummary, setCompSummary] = useState<CompensationDashboardSummary | null>(null);
+  const [compErr, setCompErr] = useState<string | null>(null);
 
   const todayIso = useMemo(() => todayIsoLocal(), []);
 
@@ -68,7 +73,21 @@ export function DashboardPage() {
     const lp = approvedVac
       .filter((e) => e.vacation_type === "LP")
       .map((e) => ({ id: e.id, patente: e.patente, nome_guerra: e.nome_guerra }));
-    return { folgas, ferias, lp, total: folgas.length + ferias.length + lp.length };
+    const outros = approvedVac
+      .filter((e) => e.vacation_type !== "FERIAS" && e.vacation_type !== "LP")
+      .map((e) => ({
+        id: e.id,
+        patente: e.patente,
+        nome_guerra: e.nome_guerra,
+        vacation_type: e.vacation_type,
+      }));
+    return {
+      folgas,
+      ferias,
+      lp,
+      outros,
+      total: folgas.length + ferias.length + lp.length + outros.length,
+    };
   }, [leaveCal, vacationCal, todayIso]);
 
   const loadScaleEvents = useCallback(async () => {
@@ -133,6 +152,22 @@ export function DashboardPage() {
     void loadVacations();
   }, [loadVacations]);
 
+  const loadCompensations = useCallback(async () => {
+    if (!token) return;
+    try {
+      const s = await compensationsApi.getCompensationSummary(token, nowYm.y);
+      setCompSummary(s);
+      setCompErr(null);
+    } catch (e) {
+      setCompSummary(null);
+      setCompErr(e instanceof ApiError ? e.detail : "Resumo de compensações indisponível");
+    }
+  }, [token, nowYm.y]);
+
+  useEffect(() => {
+    void loadCompensations();
+  }, [loadCompensations]);
+
   const todayLabel = useMemo(
     () => new Date(todayIso + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }),
     [todayIso],
@@ -156,6 +191,13 @@ export function DashboardPage() {
               <p className="mt-2 text-2xl font-semibold text-zinc-100">{leaveCal.summary.my_pending_count}</p>
             )}
           </div>
+          <article className="rounded-lg border border-zinc-800/80 bg-black/30 p-4">
+            <p className="text-xs uppercase tracking-wide text-zinc-500">Suas DS ({nowYm.y})</p>
+            {compErr && <p className="mt-2 text-xs text-red-400">{compErr}</p>}
+            {!compErr && compSummary?.ds_usage_samples[0] && (
+              <p className="mt-2 text-lg font-semibold text-sky-200">{compSummary.ds_usage_samples[0].display}</p>
+            )}
+          </article>
           {isApprover && (
             <>
               <div className="rounded-lg border border-zinc-800/80 bg-black/30 p-4">
@@ -175,7 +217,7 @@ export function DashboardPage() {
                 )}
               </article>
               <article className="rounded-lg border border-zinc-800/80 bg-black/30 p-4">
-                <p className="text-xs uppercase tracking-wide text-zinc-500">Férias pendentes</p>
+                <p className="text-xs uppercase tracking-wide text-zinc-500">Afastamentos pendentes</p>
                 {vacationErr && <p className="mt-2 text-xs text-red-400">{vacationErr}</p>}
                 {!vacationErr && vacationCal?.summary.command_pending_vacations != null && (
                   <p className="mt-2 text-2xl font-semibold text-zinc-100">
@@ -244,6 +286,21 @@ export function DashboardPage() {
                     </ul>
                   )}
                 </div>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-teal-400/90">Outros afastamentos</p>
+                  {awayToday.outros.length === 0 ? (
+                    <p className="mt-2 text-xs text-zinc-600">Nenhum outro afastamento hoje.</p>
+                  ) : (
+                    <ul className="mt-2 space-y-1">
+                      {awayToday.outros.map((p) => (
+                        <li key={p.id} className="text-sm text-zinc-200">
+                          {p.patente} {p.nome_guerra}{" "}
+                          <span className="text-zinc-500">({p.vacation_type.replace(/_/g, " ")})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
               </div>
             )}
           </article>
@@ -274,6 +331,33 @@ export function DashboardPage() {
           </div>
         )}
       </section>
+
+      {compSummary && compSummary.recent_events.length > 0 && (
+        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6 shadow-inner shadow-black/30">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Compensações</p>
+              <h3 className="mt-2 text-lg font-semibold text-zinc-100">Atividade recente</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => navigate("/compensacoes")}
+              className="text-xs text-sky-400 hover:underline"
+            >
+              Ver todas
+            </button>
+          </div>
+          <ul className="mt-4 space-y-3">
+            {compSummary.recent_events.slice(0, 5).map((ev) => (
+              <li key={ev.id} className="rounded-lg border border-zinc-800/60 bg-black/30 px-3 py-2 text-sm">
+                <span className="font-medium text-zinc-200">{COMPENSATION_TYPE_LABELS[ev.event_type]}</span>
+                <span className="ml-2 text-[10px] uppercase text-zinc-500">{ev.status}</span>
+                <p className="mt-1 line-clamp-1 text-xs text-zinc-500">{ev.motivo}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6 shadow-inner shadow-black/30">
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Escalas de Serviço</p>

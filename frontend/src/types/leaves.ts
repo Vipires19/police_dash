@@ -1,15 +1,12 @@
-export type LeaveType = "MONTHLY" | "COMPENSATION";
+export type LeaveType = "MONTHLY" | "COMPENSATION" | "DS";
 
 export type LeaveStatus = "PENDING" | "REVIEW" | "APPROVED" | "REJECTED" | "CANCELLED";
 
-export type CompensationType =
-  | "CPJ_SUPPORT"
-  | "WEAPON_OCCURRENCE"
-  | "RELEVANT_OCCURRENCE"
-  | "TWO_WANTED"
-  | "FIVE_FLAGRANTS";
-
-export type CompensationEventStatus = "PENDING" | "APPROVED" | "REJECTED";
+export type {
+  CompensationType,
+  CompensationEventStatus,
+  CompensationEventPublic,
+} from "@/types/compensations";
 
 export type UserCompensationStatus = "AVAILABLE" | "USED";
 
@@ -91,17 +88,4 @@ export interface UserCompensationAvailable {
   label: string;
   event_date: string;
   description: string;
-}
-
-export interface CompensationEventPublic {
-  id: number;
-  event_type: CompensationType;
-  motivo: string;
-  status: CompensationEventStatus;
-  created_by_id: number;
-  decided_by_id: number | null;
-  decided_at: string | null;
-  decision_motivo: string | null;
-  created_at: string;
-  participant_user_ids: number[];
 }

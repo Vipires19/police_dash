@@ -74,7 +74,8 @@ def require_staff_editor(current: User = Depends(get_current_approved_user)) -> 
     return current
 
 
-VEHICLE_EDITOR_ROLES = {UserRole.ADMIN, UserRole.N90, UserRole.TAT_CMD, UserRole.BRACAL}
+# Comando + qualquer braçal; estagiários não editam viaturas.
+VEHICLE_EDITOR_ROLES = APPROVER_ROLES | {UserRole.BRACAL}
 
 
 def require_vehicle_editor(current: User = Depends(get_current_approved_user)) -> User:

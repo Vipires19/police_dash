@@ -53,6 +53,24 @@ def _append_leave_log(
     )
 
 
+def _count_user_monthly_folgas(db: Session, user_id: int, year: int, month: int, exclude_id: int | None = None) -> int:
+    start, last = _month_bounds(year, month)
+    stmt = (
+        select(func.count())
+        .select_from(LeaveRequest)
+        .where(
+            LeaveRequest.user_id == user_id,
+            LeaveRequest.leave_type == LeaveType.MONTHLY,
+            LeaveRequest.leave_on >= start,
+            LeaveRequest.leave_on <= last,
+            LeaveRequest.status.in_(_ACTIVE_LEAVE_STATUSES),
+        )
+    )
+    if exclude_id is not None:
+        stmt = stmt.where(LeaveRequest.id != exclude_id)
+    return int(db.scalar(stmt) or 0)
+
+
 def _count_user_month_leaves(db: Session, user_id: int, year: int, month: int, exclude_id: int | None = None) -> int:
     start, last = _month_bounds(year, month)
     stmt = (
@@ -98,6 +116,10 @@ def create_leave_request(db: Session, actor: User, payload: LeaveRequestCreate) 
     if payload.leave_type == LeaveType.MONTHLY and payload.user_compensation_id is not None:
         raise ValueError("Folga mensal não utiliza compensação vinculada")
 
+    if payload.leave_type == LeaveType.DS:
+        if payload.user_compensation_id is not None:
+            raise ValueError("DS não utiliza crédito de compensação")
+
     if payload.leave_type == LeaveType.COMPENSATION:
         if payload.user_compensation_id is None:
             raise ValueError("Compensação obrigatória para este tipo de folga")
@@ -114,7 +136,10 @@ def create_leave_request(db: Session, actor: User, payload: LeaveRequestCreate) 
     day_total = _count_day_leaves(db, payload.leave_on)
 
     reasons: list[str] = []
-    if month_total + 1 > 2:
+    if payload.leave_type == LeaveType.MONTHLY:
+        if _count_user_monthly_folgas(db, actor.id, year, month) >= 1:
+            reasons.append("Já existe folga mensal ativa neste mês")
+    elif month_total + 1 > 2:
         reasons.append("Excedeu limite operacional mensal (máx. 2 folgas)")
     if day_total + 1 > 4:
         reasons.append("Efetivo reduzido no dia (acima de 4 policiais)")
@@ -214,18 +239,37 @@ def reject_leave(db: Session, leave_id: int, approver: User, motivo: str) -> Lea
     return row
 
 
+def _release_compensation_credit_for_leave(db: Session, row: LeaveRequest) -> None:
+    if row.leave_type != LeaveType.COMPENSATION or not row.user_compensation_id:
+        return
+    uc = db.scalars(
+        select(UserCompensation).where(UserCompensation.id == row.user_compensation_id)
+    ).first()
+    if not uc:
+        return
+    if uc.status == UserCompensationStatus.USED and uc.used_leave_request_id == row.id:
+        uc.status = UserCompensationStatus.AVAILABLE
+        uc.used_leave_request_id = None
+        uc.used_at = None
+
+
 def cancel_leave(db: Session, leave_id: int, actor: User, motivo: str | None) -> LeaveRequest:
     row = db.scalars(select(LeaveRequest).where(LeaveRequest.id == leave_id)).first()
     if not row:
         raise ValueError("Solicitação não encontrada")
     if row.user_id != actor.id:
         raise ValueError("Somente o solicitante pode cancelar")
-    if row.status not in (LeaveStatus.PENDING, LeaveStatus.REVIEW):
-        raise ValueError("Somente pendências em análise podem ser canceladas pelo policial")
+    if row.status not in _ACTIVE_LEAVE_STATUSES:
+        raise ValueError("Esta solicitação não pode mais ser cancelada")
+    if row.status == LeaveStatus.APPROVED and not (motivo and motivo.strip()):
+        raise ValueError("Informe o motivo do cancelamento (ex.: remarcar para outro dia)")
 
     prev = row.status
     row.status = LeaveStatus.CANCELLED
-    row.decision_motivo = motivo
+    row.decision_motivo = motivo.strip() if motivo else motivo
+
+    if prev == LeaveStatus.APPROVED:
+        _release_compensation_credit_for_leave(db, row)
 
     _append_leave_log(
         db,
@@ -279,7 +323,11 @@ def build_calendar(
         by_day[r.leave_on].append(r)
 
     def operational_rank(lt: LeaveType) -> int:
-        return 1 if lt == LeaveType.MONTHLY else 2
+        if lt == LeaveType.MONTHLY:
+            return 1
+        if lt == LeaveType.DS:
+            return 2
+        return 3
 
     days_out: list[dict] = []
     d = start
@@ -374,6 +422,7 @@ def list_available_compensation_credits(db: Session, user_id: int) -> list[dict]
         .where(
             UserCompensation.user_id == user_id,
             UserCompensation.status == UserCompensationStatus.AVAILABLE,
+            CompensationEvent.status == CompensationStatus.APPROVED,
         )
         .order_by(UserCompensation.created_at.desc())
     )

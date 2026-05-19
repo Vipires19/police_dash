@@ -8,3 +8,4 @@ venv/
 dist/
 node_modules/
 *.tsbuildinfo
+/docker/Dockerfile.b

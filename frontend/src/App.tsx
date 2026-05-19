@@ -6,12 +6,14 @@ import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { EfetivoPage } from "@/pages/EfetivoPage";
+import { AfastamentosPage } from "@/pages/AfastamentosPage";
 import { FeriasPage } from "@/pages/FeriasPage";
 import { ServiceScalePage } from "@/pages/ServiceScalePage";
 import { FolgasPage } from "@/pages/FolgasPage";
 import { PendingUsersPage } from "@/pages/PendingUsersPage";
 import { PerfilPage } from "@/pages/PerfilPage";
 import { ViaturasPage } from "@/pages/ViaturasPage";
+import { CompensationsPage } from "@/pages/CompensationsPage";
 
 function RootRedirect() {
   const { token, user, loading } = useAuth();
@@ -94,10 +96,26 @@ const router = createBrowserRouter([
     ),
   },
   {
+    path: "/compensacoes",
+    element: (
+      <ProtectedRoute>
+        <CompensationsPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
     path: "/folgas",
     element: (
       <ProtectedRoute>
         <FolgasPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/afastamentos",
+    element: (
+      <ProtectedRoute>
+        <AfastamentosPage />
       </ProtectedRoute>
     ),
   },
@@ -131,9 +149,7 @@ const router = createBrowserRouter([
     path: "/admin/compensacoes",
     element: (
       <ProtectedRoute>
-        <ApprovalHubRoute>
-          <Navigate to="/admin/pending-users?tab=compensacoes" replace />
-        </ApprovalHubRoute>
+        <Navigate to="/compensacoes" replace />
       </ProtectedRoute>
     ),
   },

@@ -12,6 +12,10 @@ from database.base import Base
 class VacationType(str, enum.Enum):
     FERIAS = "FERIAS"
     LP = "LP"
+    LTS = "LTS"
+    CURSO = "CURSO"
+    ESTAGIO_OPERACIONAL = "ESTAGIO_OPERACIONAL"
+    OUTROS = "OUTROS"
 
 
 class VacationStatus(str, enum.Enum):
@@ -20,6 +24,7 @@ class VacationStatus(str, enum.Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
+    REVERTED = "REVERTED"
 
 
 class VacationLogAction(str, enum.Enum):
@@ -28,6 +33,7 @@ class VacationLogAction(str, enum.Enum):
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
     UPDATED = "UPDATED"
+    REVERTED = "REVERTED"
 
 
 class VacationRequest(Base):
@@ -48,6 +54,7 @@ class VacationRequest(Base):
         default=VacationStatus.PENDING,
     )
     review_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     decision_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
     approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

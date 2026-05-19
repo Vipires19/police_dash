@@ -73,7 +73,12 @@ def update_vehicle(
     try:
         updated = vehicle_svc.update_vehicle(db, v, body, current)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+        code = (
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if "Motivo obrigatório" in str(e)
+            else status.HTTP_409_CONFLICT
+        )
+        raise HTTPException(status_code=code, detail=str(e)) from e
     return VehiclePublic.model_validate(updated)
 
 

@@ -129,8 +129,10 @@ def _format_ro_cam_team(team: ScaleTeam, scale_date: date) -> list[str]:
 def _collect_absences(db: Session, scale_date: date) -> dict[str, list[str]]:
     folga_mes: list[str] = []
     folga_comp: list[str] = []
+    folga_ds: list[str] = []
     ferias: list[str] = []
     lp: list[str] = []
+    afastamentos: list[str] = []
 
     leaves = db.scalars(
         select(LeaveRequest)
@@ -149,6 +151,8 @@ def _collect_absences(db: Session, scale_date: date) -> dict[str, list[str]]:
         line = _member_line(u.patente, u.nome_guerra)
         if row.leave_type == LeaveType.MONTHLY:
             folga_mes.append(line)
+        elif row.leave_type == LeaveType.DS:
+            folga_ds.append(line)
         else:
             folga_comp.append(line)
 
@@ -169,17 +173,22 @@ def _collect_absences(db: Session, scale_date: date) -> dict[str, list[str]]:
         line = _member_line(u.patente, u.nome_guerra)
         if row.vacation_type == VacationType.FERIAS:
             ferias.append(line)
-        else:
+        elif row.vacation_type == VacationType.LP:
             lp.append(line)
+        else:
+            label = row.vacation_type.value.replace("_", " ")
+            afastamentos.append(f"{line} ({label})")
 
-    for bucket in (folga_mes, folga_comp, ferias, lp):
+    for bucket in (folga_mes, folga_comp, folga_ds, ferias, lp, afastamentos):
         bucket.sort(key=str.lower)
 
     return {
         "folga_mes": folga_mes,
         "folga_comp": folga_comp,
+        "folga_ds": folga_ds,
         "ferias": ferias,
         "lp": lp,
+        "afastamentos": afastamentos,
     }
 
 
@@ -222,8 +231,10 @@ def format_published_scale(db: Session, scale: ServiceScale) -> str:
     absences = _collect_absences(db, scale.scale_date)
     _append_section(lines, "Folga do mês:", absences["folga_mes"])
     _append_section(lines, "Folga compensação:", absences["folga_comp"])
+    _append_section(lines, "DS:", absences["folga_ds"])
     _append_section(lines, "Férias:", absences["ferias"])
     _append_section(lines, "LP:", absences["lp"])
+    _append_section(lines, "Afastamentos:", absences["afastamentos"])
 
     while lines and lines[-1] == "":
         lines.pop()

@@ -25,6 +25,9 @@ export const SCALE_EDITOR_ROLES: Role[] = ["ADMIN", "N90"];
 
 export const APPROVER_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD"];
 
+/** Criação e edição operacional de viaturas (comando + braçal; sem estagiário). */
+export const VEHICLE_EDITOR_ROLES: Role[] = [...APPROVER_ROLES, "BRACAL"];
+
 export const COMPENSATION_CREATOR_ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL"];
 
 export function isStaffEditor(role: Role): boolean {

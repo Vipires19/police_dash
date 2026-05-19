@@ -36,6 +36,9 @@ class VehicleUpdate(BaseModel):
     prefixo: str | None = Field(default=None, min_length=1, max_length=32)
     modelo: str | None = Field(default=None, min_length=1, max_length=128)
     modalidade: VehicleModalidadeEnum | None = None
+    status: VehicleStatusEnum | None = None
+    observacoes: str | None = Field(default=None, max_length=4000)
+    status_motivo: str | None = Field(default=None, min_length=1, max_length=2000)
 
 
 class VehicleStatusChange(BaseModel):
@@ -50,6 +53,7 @@ class VehiclePublic(BaseModel):
     modelo: str
     modalidade: VehicleModalidadeEnum
     status: VehicleStatusEnum
+    observacoes: str | None = None
     baixada_at: datetime | None
     retorno_operacao_at: datetime | None
     created_at: datetime

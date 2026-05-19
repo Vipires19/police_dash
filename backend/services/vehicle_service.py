@@ -57,6 +57,64 @@ def _append_log(
     return row
 
 
+def _ensure_unique_fields(
+    db: Session,
+    vehicle_id: int,
+    *,
+    placa: str | None = None,
+    prefixo: str | None = None,
+) -> None:
+    if placa:
+        dup = db.scalars(
+            select(Vehicle).where(Vehicle.placa == placa, Vehicle.id != vehicle_id)
+        ).first()
+        if dup:
+            raise ValueError("Placa já cadastrada")
+    if prefixo:
+        dup = db.scalars(
+            select(Vehicle).where(Vehicle.prefixo == prefixo, Vehicle.id != vehicle_id)
+        ).first()
+        if dup:
+            raise ValueError("Prefixo já cadastrado")
+
+
+def _apply_status_change(
+    db: Session,
+    vehicle: Vehicle,
+    new: VehicleStatus,
+    actor: User,
+    motivo: str,
+) -> bool:
+    """Aplica mudança de status com auditoria. Retorna True se houve alteração."""
+    old = vehicle.status
+    if old == new:
+        return False
+    now_aware = datetime.now(_BR).astimezone()
+    if new == VehicleStatus.BAIXADA:
+        vehicle.baixada_at = now_aware
+    if new == VehicleStatus.OPERANDO:
+        vehicle.retorno_operacao_at = now_aware
+    vehicle.status = new
+    motivo_clean = motivo.strip()
+    if new == VehicleStatus.OPERANDO and old in (VehicleStatus.BAIXADA, VehicleStatus.MANUTENCAO):
+        action = VehicleActionType.RETURNED
+        desc = f"{_date_label()} — {vehicle.prefixo} retornou à operação — por {_actor(actor)}"
+    else:
+        action = VehicleActionType.STATUS_CHANGED
+        desc = f"{_date_label()} — {vehicle.prefixo} status {old.value} → {new.value} — por {_actor(actor)}"
+    _append_log(
+        db,
+        vehicle_id=vehicle.id,
+        user_id=actor.id,
+        action=action,
+        description=desc,
+        motivo=motivo_clean,
+        old_status=old,
+        new_status=new,
+    )
+    return True
+
+
 def list_vehicles(db: Session) -> list[Vehicle]:
     return list(
         db.scalars(
@@ -111,9 +169,15 @@ def list_recent_logs(db: Session, limit: int = 15) -> list[VehicleLogFeedItem]:
 
 
 def create_vehicle(db: Session, data: VehicleCreate, actor: User) -> Vehicle:
+    placa = data.placa.strip().upper()
+    prefixo = data.prefixo.strip()
+    if db.scalars(select(Vehicle).where(Vehicle.placa == placa)).first():
+        raise ValueError("Placa já cadastrada")
+    if db.scalars(select(Vehicle).where(Vehicle.prefixo == prefixo)).first():
+        raise ValueError("Prefixo já cadastrado")
     v = Vehicle(
-        placa=data.placa.strip().upper(),
-        prefixo=data.prefixo.strip(),
+        placa=placa,
+        prefixo=prefixo,
         modelo=data.modelo.strip(),
         modalidade=VehicleModalidade(data.modalidade.value),
         status=VehicleStatus(data.status.value),
@@ -140,14 +204,18 @@ def create_vehicle(db: Session, data: VehicleCreate, actor: User) -> Vehicle:
 
 def update_vehicle(db: Session, vehicle: Vehicle, data: VehicleUpdate, actor: User) -> Vehicle:
     changes: list[str] = []
+    status_changed = False
+
     if data.placa is not None:
         np = data.placa.strip().upper()
         if np != vehicle.placa:
+            _ensure_unique_fields(db, vehicle.id, placa=np)
             changes.append(f"placa {vehicle.placa} → {np}")
             vehicle.placa = np
     if data.prefixo is not None:
         np = data.prefixo.strip()
         if np != vehicle.prefixo:
+            _ensure_unique_fields(db, vehicle.id, prefixo=np)
             changes.append(f"prefixo {vehicle.prefixo} → {np}")
             vehicle.prefixo = np
     if data.modelo is not None:
@@ -160,15 +228,40 @@ def update_vehicle(db: Session, vehicle: Vehicle, data: VehicleUpdate, actor: Us
         if nm != vehicle.modalidade:
             changes.append(f"modalidade {vehicle.modalidade.value} → {nm.value}")
             vehicle.modalidade = nm
-    if not changes:
+    if data.observacoes is not None:
+        new_obs = data.observacoes.strip() or None
+        old_obs = (vehicle.observacoes or "").strip() or None
+        if new_obs != old_obs:
+            changes.append("observações atualizadas")
+            vehicle.observacoes = new_obs
+
+    if data.status is not None:
+        new_status = VehicleStatus(data.status.value)
+        if new_status != vehicle.status:
+            if not data.status_motivo or not data.status_motivo.strip():
+                raise ValueError("Motivo obrigatório ao alterar o status operacional")
+            status_changed = _apply_status_change(
+                db, vehicle, new_status, actor, data.status_motivo
+            )
+
+    if not changes and not status_changed:
         return vehicle
-    try:
-        db.flush()
-    except IntegrityError as e:
-        db.rollback()
-        raise ValueError("Placa ou prefixo já cadastrados") from e
-    desc = f"{_date_label()} — {vehicle.prefixo} atualizada — " + "; ".join(changes)
-    _append_log(db, vehicle_id=vehicle.id, user_id=actor.id, action=VehicleActionType.UPDATED, description=desc)
+
+    if changes:
+        try:
+            db.flush()
+        except IntegrityError as e:
+            db.rollback()
+            raise ValueError("Placa ou prefixo já cadastrados") from e
+        desc = f"{_date_label()} — {vehicle.prefixo} atualizada — " + "; ".join(changes)
+        _append_log(
+            db,
+            vehicle_id=vehicle.id,
+            user_id=actor.id,
+            action=VehicleActionType.UPDATED,
+            description=desc,
+        )
+
     db.commit()
     db.refresh(vehicle)
     return vehicle
@@ -180,32 +273,10 @@ def change_vehicle_status(
     body: VehicleStatusChange,
     actor: User,
 ) -> Vehicle:
-    old = vehicle.status
     new = VehicleStatus(body.new_status.value)
-    if old == new:
+    if vehicle.status == new:
         return vehicle
-    now_aware = datetime.now(_BR).astimezone()
-    if new == VehicleStatus.BAIXADA:
-        vehicle.baixada_at = now_aware
-    if new == VehicleStatus.OPERANDO:
-        vehicle.retorno_operacao_at = now_aware
-    vehicle.status = new
-    if new == VehicleStatus.OPERANDO and old in (VehicleStatus.BAIXADA, VehicleStatus.MANUTENCAO):
-        action = VehicleActionType.RETURNED
-        desc = f"{_date_label()} — {vehicle.prefixo} retornou à operação — por {_actor(actor)}"
-    else:
-        action = VehicleActionType.STATUS_CHANGED
-        desc = f"{_date_label()} — {vehicle.prefixo} status {old.value} → {new.value} — por {_actor(actor)}"
-    _append_log(
-        db,
-        vehicle_id=vehicle.id,
-        user_id=actor.id,
-        action=action,
-        description=desc,
-        motivo=body.motivo.strip(),
-        old_status=old,
-        new_status=new,
-    )
+    _apply_status_change(db, vehicle, new, actor, body.motivo)
     db.commit()
     db.refresh(vehicle)
     return vehicle

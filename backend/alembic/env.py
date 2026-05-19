@@ -14,6 +14,7 @@ from models.user import User  # noqa: F401
 from models.vehicle import Vehicle, VehicleLog  # noqa: F401
 from models.compensations import (  # noqa: F401
     CompensationEvent,
+    CompensationEventLog,
     CompensationEventParticipant,
     UserCompensation,
 )

@@ -12,13 +12,30 @@ export function vacationStatusLabel(s: VacationStatus): string {
       return "Indeferida";
     case "CANCELLED":
       return "Cancelada";
+    case "REVERTED":
+      return "Revertida";
     default:
       return s;
   }
 }
 
 export function vacationTypeLabel(t: VacationType): string {
-  return t === "FERIAS" ? "Férias" : "LP";
+  switch (t) {
+    case "FERIAS":
+      return "Férias";
+    case "LP":
+      return "LP";
+    case "LTS":
+      return "LTS";
+    case "CURSO":
+      return "Curso";
+    case "ESTAGIO_OPERACIONAL":
+      return "Estágio operacional";
+    case "OUTROS":
+      return "Outros";
+    default:
+      return t;
+  }
 }
 
 export function vacationStatusCellClass(statuses: Set<VacationStatus>): string {
@@ -49,13 +66,56 @@ export function vacationStatusBadgeClass(s: VacationStatus): string {
       return "border-red-700/60 bg-red-950/50 text-red-100";
     case "CANCELLED":
       return "border-zinc-600/60 bg-zinc-900/60 text-zinc-400";
+    case "REVERTED":
+      return "border-violet-700/60 bg-violet-950/50 text-violet-200";
     default:
       return "border-zinc-700 bg-zinc-900 text-zinc-300";
   }
 }
 
 export function vacationTypeBadgeClass(t: VacationType): string {
-  return t === "FERIAS"
-    ? "border-violet-700/50 bg-violet-950/40 text-violet-200"
-    : "border-cyan-700/50 bg-cyan-950/40 text-cyan-200";
+  switch (t) {
+    case "FERIAS":
+      return "border-violet-700/50 bg-violet-950/40 text-violet-200";
+    case "LP":
+      return "border-cyan-700/50 bg-cyan-950/40 text-cyan-200";
+    case "LTS":
+      return "border-orange-700/50 bg-orange-950/40 text-orange-200";
+    case "CURSO":
+      return "border-blue-700/50 bg-blue-950/40 text-blue-200";
+    case "ESTAGIO_OPERACIONAL":
+      return "border-teal-700/50 bg-teal-950/40 text-teal-200";
+    case "OUTROS":
+      return "border-zinc-600/50 bg-zinc-900/60 text-zinc-300";
+    default:
+      return "border-zinc-700 bg-zinc-900 text-zinc-300";
+  }
 }
+
+export function vacationTypeDotClass(t: VacationType): string {
+  switch (t) {
+    case "FERIAS":
+      return "bg-violet-400";
+    case "LP":
+      return "bg-cyan-400";
+    case "LTS":
+      return "bg-orange-400";
+    case "CURSO":
+      return "bg-blue-400";
+    case "ESTAGIO_OPERACIONAL":
+      return "bg-teal-400";
+    case "OUTROS":
+      return "bg-zinc-400";
+    default:
+      return "bg-zinc-500";
+  }
+}
+
+export const ABSENCE_LEGEND: { type: VacationType; label: string }[] = [
+  { type: "FERIAS", label: "Férias" },
+  { type: "LP", label: "LP" },
+  { type: "LTS", label: "LTS" },
+  { type: "CURSO", label: "Curso" },
+  { type: "ESTAGIO_OPERACIONAL", label: "Estágio op." },
+  { type: "OUTROS", label: "Outros" },
+];
