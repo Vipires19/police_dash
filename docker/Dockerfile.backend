@@ -3,10 +3,10 @@ FROM python:3.12-slim-bookworm
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 
-COPY backend/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY backend/ .
+COPY . .
 RUN chmod +x docker-entrypoint.sh
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]

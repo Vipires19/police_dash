@@ -105,26 +105,33 @@ Centralizar, com rastreabilidade:
 ```text
 pelotao-system/
 ├── backend/
-│   ├── alembic/              # env.py + versions (001…007)
+│   ├── alembic/              # env.py + versions (001…013)
 │   ├── auth/                 # JWT, deps (approver, scale editor, vehicle editor, …)
 │   ├── core/                 # config, patentes, política de folgas, labels de compensação
 │   ├── database/             # Base, session
-│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, …
-│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales
+│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, StolenVehicle, …
+│   │   └── stolen_vehicle.py
+│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales, stolen_vehicles
+│   │   └── stolen_vehicles.py
 │   ├── schemas/              # DTOs Pydantic por domínio
+│   │   └── stolen_vehicle.py
 │   ├── services/             # serviços de domínio + scale_export_service.py
+│   │   └── stolen_vehicle_service.py
 │   ├── main.py
 │   ├── requirements.txt
 │   └── docker-entrypoint.sh
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/ (modal export, DnD)
+│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/, stolen-vehicles/
 │   │   ├── constants/        # ranks.ts (grupos visuais)
 │   │   ├── hooks/            # AuthContext
 │   │   ├── layouts/          # OperationalLayout (sidebar)
-│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, Folgas, Férias, Escala, Perfil, Aprovações
+│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, StolenVehicles, Folgas, Férias, Escala, Perfil, Aprovações
+│   │   │   └── StolenVehiclesPage.tsx
 │   │   ├── services/         # clientes API por módulo
+│   │   │   └── stolenVehiclesApi.ts
 │   │   └── types.ts + types/*.ts
+│   │       └── stolenVehicles.ts
 │   ├── package.json
 │   └── nginx.conf
 ├── docker/
@@ -153,6 +160,7 @@ pelotao-system/
 | Folgas e compensações | Calendário mensal; solicitações mensais ou com crédito; **REVIEW** automático ao exceder limites; hub de aprovação. |
 | Férias e LP | Calendário mensal; períodos de **15 ou 30 dias**; máx. **2** policiais simultâneos (Férias/LP); status + review do comando; flags de disponibilidade no efetivo. |
 | Escalas de serviço | Calendário mensal; múltiplas equipes/dia; FT (viatura + até 4 policiais) e ROCAM (até 3 policiais, **motos individuais**); rascunho/publicação; logs de auditoria; histórico; **exportação operacional**. |
+| **Veículos Produtos de Crime** | Cadastro de furto/roubo; grupo **0 a 9** automático pela placa; histórico permanente; consulta por placa/modelo/cor; localização; folha operacional **0 a 9** (carros/motos); impressão A4 inspirada na folha física. |
 | Health | `GET /health` |
 
 ---
@@ -217,6 +225,12 @@ Unidades de frota (FT/ROCAM) e logs operacionais por alteração.
 - **`scale_logs`**: trilha de auditoria (`TEAM_ADDED`, `PUBLISHED`, `MEMBERS_CHANGED`, …).
 
 Alembic: `006_vacations.py`, `007_service_scales.py` (após `001`–`005`).
+
+### Veículos produtos de crime
+
+- **`stolen_vehicles`**: `vehicle_type` (`CARRO` \| `MOTO`), `plate`, `vehicle_model`, `color`, `year`, `occurrence_type` (`FURTO` \| `ROUBO`), `plate_group` (0 a 9), `observation`, `is_recovered`, `recovered_at`, `recovered_by_id`, `recovered_notes`, `created_by_id`, timestamps.
+- Registros **não são excluídos**; veículos localizados saem da folha operacional, mas permanecem no histórico e na consulta.
+- Alembic: `012_stolen_vehicles.py`, `013_stolen_vehicles_recover_audit.py`.
 
 ---
 
@@ -317,6 +331,24 @@ Horários fora do padrão 06:00–18:00 no dia da escala exibem empenho + faixa 
 ## Módulo de viaturas
 
 - Página `/viaturas`: seções FT e ROCAM, fluxo de status, logs, feed.
+
+---
+
+## Módulo Veículos Produtos de Crime
+
+Substituição digital da folha física **“0 a 9”** para acompanhamento de veículos produtos de furto e roubo.
+
+### Funcionalidades
+
+- **Cadastro** de veículos (`CARRO` / `MOTO`, placa, veículo, cor, ano, `FURTO` / `ROUBO`, observação opcional).
+- **Classificação automática por grupo (0 a 9)** usando o **primeiro número** encontrado na placa (ex.: `FWB0F63` → grupo `0`).
+- **Histórico permanente** — nenhum registro é excluído automaticamente.
+- **Consulta** por placa, modelo ou cor (`GET /stolen-vehicles/search`).
+- **Marcação de veículo localizado** — exclusão lógica via `is_recovered` e `recovered_at` (com `recovered_by_id` e `recovered_notes` quando informados).
+- **Folha operacional 0 a 9**: até **10 registros mais recentes não localizados** por grupo; preenchimento **de baixo para cima** (mais recente na linha inferior).
+- **Separação carros / motos** na folha e na impressão A4 (duas páginas).
+- Layout de tabela contínua por grupo, inspirado na folha física do pelotão (colunas: Placa, Veículo, Cor, Ano, F/R).
+- Frontend: `/veiculos-produtos-crime` — abas **Cadastro**, **Folha 0 a 9**, **Consulta**; menu **Veículos Produtos de Crime**.
 
 ---
 
@@ -426,6 +458,16 @@ Horários fora do padrão 06:00–18:00 no dia da escala exibem empenho + faixa 
 | DELETE | `/service-scales/{id}` | Editor de escala — excluir escala. |
 | GET | `/service-scales/{id}/export` | **Somente publicada** → `{ "text": "…" }`. |
 
+### Veículos Produtos de Crime — `/stolen-vehicles`
+
+| Método | Caminho | Auth / notas |
+|--------|---------|----------------|
+| POST | `/stolen-vehicles/` | Usuário aprovado — cadastro (`plate_group` calculado no servidor). |
+| GET | `/stolen-vehicles/` | Listagem com filtros opcionais (`is_recovered`, `vehicle_type`, `plate_group`). |
+| GET | `/stolen-vehicles/search` | Busca por placa, modelo ou cor (`q`). |
+| GET | `/stolen-vehicles/sheet` | Folha operacional 0 a 9 (carros + motos, somente não localizados). |
+| PATCH | `/stolen-vehicles/{id}/recover` | Marcar veículo como localizado. |
+
 ### Outros
 
 | Método | Caminho |
@@ -505,6 +547,15 @@ docker compose up --build
 - Exportação PDF de escalas publicadas.  
 - Notificações em tempo real (WebSocket) para filas de aprovação.  
 - Política de senha e 2FA.
+
+### Veículos Produtos de Crime — evoluções futuras
+
+- Auditoria completa de localização (logs dedicados).  
+- Expansão de `recovered_by_id` e `recovered_notes` em painéis operacionais.  
+- Dashboard operacional do módulo.  
+- Estatísticas por tipo (`CARRO` / `MOTO`) e natureza (`FURTO` / `ROUBO`).  
+- Integração futura com **Heimdall**.  
+- Exportação PDF da folha 0 a 9 (além da impressão HTML).
 
 ---
 

@@ -12,6 +12,7 @@ from routes import users as users_routes
 from routes import vacations as vacations_routes
 from routes import vehicles as vehicles_routes
 from routes import service_scales as service_scales_routes
+from routes import stolen_vehicles as stolen_vehicles_routes
 from services.user_service import ensure_bootstrap_admin
 
 
@@ -51,6 +52,7 @@ app.include_router(compensations_routes.router)
 app.include_router(vacations_routes.router)
 app.include_router(vacations_routes.absences_router)
 app.include_router(service_scales_routes.router)
+app.include_router(stolen_vehicles_routes.router)
 
 
 @app.get("/health")

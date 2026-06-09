@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
+  Car,
   ClipboardList,
   Gift,
   Palmtree,
@@ -43,6 +44,7 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
     { to: "/efetivo", label: "Efetivo", icon: Users },
     { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
     { to: "/viaturas", label: "Viaturas", icon: Truck },
+    { to: "/veiculos-produtos-crime", label: "Veículos Produtos de Crime", icon: Car },
     { to: "/compensacoes", label: "Compensações", icon: Gift },
     { to: "/folgas", label: "Folgas", icon: CalendarDays },
     { to: "/afastamentos", label: "Afastamentos", icon: Palmtree },

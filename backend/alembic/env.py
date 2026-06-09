@@ -26,6 +26,7 @@ from models.service_scale import (  # noqa: F401
     ScaleTeamMember,
     ServiceScale,
 )
+from models.stolen_vehicle import StolenVehicle  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:
