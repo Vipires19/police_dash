@@ -15,6 +15,7 @@ import { PerfilPage } from "@/pages/PerfilPage";
 import { ViaturasPage } from "@/pages/ViaturasPage";
 import { CompensationsPage } from "@/pages/CompensationsPage";
 import { StolenVehiclesPage } from "@/pages/StolenVehiclesPage";
+import { CriminalWatchVehiclesPage } from "@/pages/CriminalWatchVehiclesPage";
 
 function RootRedirect() {
   const { token, user, loading } = useAuth();
@@ -141,6 +142,14 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <StolenVehiclesPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/veiculos-c05",
+    element: (
+      <ProtectedRoute>
+        <CriminalWatchVehiclesPage />
       </ProtectedRoute>
     ),
   },

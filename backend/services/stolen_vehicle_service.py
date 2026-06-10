@@ -109,6 +109,14 @@ def get_stolen_vehicle(db: Session, vehicle_id: int) -> StolenVehicle | None:
     return db.get(StolenVehicle, vehicle_id)
 
 
+def delete_stolen_vehicle(db: Session, vehicle_id: int) -> None:
+    row = get_stolen_vehicle(db, vehicle_id)
+    if not row:
+        raise ValueError("Veículo não encontrado.")
+    db.delete(row)
+    db.commit()
+
+
 def recover_stolen_vehicle(
     db: Session,
     vehicle_id: int,

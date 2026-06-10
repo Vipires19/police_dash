@@ -69,6 +69,18 @@ def get_operational_sheet(
     return svc.get_operational_sheet(db)
 
 
+@router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_stolen_vehicle(
+    vehicle_id: int,
+    _: User = Depends(get_current_approved_user),
+    db: Session = Depends(get_db),
+) -> None:
+    try:
+        svc.delete_stolen_vehicle(db, vehicle_id)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
 @router.patch("/{vehicle_id}/recover", response_model=StolenVehiclePublic)
 def recover_stolen_vehicle(
     vehicle_id: int,

@@ -3,7 +3,7 @@
 # Pelotão System
 
 **Sistema operacional web para gestão interna de pelotão policial**  
-Força Tática / ROCAM · efetivo · perfis · viaturas · folgas e compensações · férias e LP · escalas de serviço · logs
+Força Tática / ROCAM · efetivo · perfis · viaturas · folgas e compensações · férias e LP · escalas de serviço · veículos furto/roubo · C05 · QRUs operacionais · logs
 
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev/)
@@ -41,6 +41,7 @@ Centralizar, com rastreabilidade:
 - estado das viaturas (operando, fora de operação, manutenção, reserva) e **quem** alterou **o quê** e **por quê**;
 - solicitações mensais de folga, créditos de compensação, férias e LP, com aprovação do comando e trilha auditável;
 - **escalas de serviço** diárias (equipes FT e ROCAM, empenhos, viaturas/motos, publicação);
+- **veículos produtos de crime** (folha 0 a 9) e **veículos C05** monitorados com códigos **QRU** operacionais;
 - acesso conforme **role** do policial no sistema (não confundir **patente** institucional com **role** de aplicação).
 
 ---
@@ -105,33 +106,43 @@ Centralizar, com rastreabilidade:
 ```text
 pelotao-system/
 ├── backend/
-│   ├── alembic/              # env.py + versions (001…013)
+│   ├── alembic/              # env.py + versions (001…014)
 │   ├── auth/                 # JWT, deps (approver, scale editor, vehicle editor, …)
 │   ├── core/                 # config, patentes, política de folgas, labels de compensação
 │   ├── database/             # Base, session
-│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, StolenVehicle, …
-│   │   └── stolen_vehicle.py
-│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales, stolen_vehicles
-│   │   └── stolen_vehicles.py
+│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, StolenVehicle, CriminalWatch, …
+│   │   ├── stolen_vehicle.py
+│   │   └── criminal_watch.py # VehicleQruCode, CriminalWatchVehicle, CriminalWatchNote
+│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales, stolen_vehicles, criminal_watch, vehicle_qru_codes
+│   │   ├── stolen_vehicles.py
+│   │   ├── criminal_watch.py
+│   │   └── vehicle_qru_codes.py
 │   ├── schemas/              # DTOs Pydantic por domínio
-│   │   └── stolen_vehicle.py
+│   │   ├── stolen_vehicle.py
+│   │   └── criminal_watch.py
 │   ├── services/             # serviços de domínio + scale_export_service.py
-│   │   └── stolen_vehicle_service.py
+│   │   ├── stolen_vehicle_service.py
+│   │   ├── criminal_watch_service.py
+│   │   └── vehicle_qru_code_service.py
 │   ├── main.py
 │   ├── requirements.txt
 │   └── docker-entrypoint.sh
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/, stolen-vehicles/
+│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/, stolen-vehicles/, criminal-watch/
 │   │   ├── constants/        # ranks.ts (grupos visuais)
 │   │   ├── hooks/            # AuthContext
-│   │   ├── layouts/          # OperationalLayout (sidebar)
-│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, StolenVehicles, Folgas, Férias, Escala, Perfil, Aprovações
-│   │   │   └── StolenVehiclesPage.tsx
+│   │   ├── layouts/          # OperationalLayout (sidebar com grupos accordion)
+│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, StolenVehicles, CriminalWatchVehicles, Folgas, Férias, Escala, Perfil, Aprovações
+│   │   │   ├── StolenVehiclesPage.tsx
+│   │   │   └── CriminalWatchVehiclesPage.tsx
 │   │   ├── services/         # clientes API por módulo
-│   │   │   └── stolenVehiclesApi.ts
+│   │   │   ├── stolenVehiclesApi.ts
+│   │   │   ├── criminalWatchApi.ts
+│   │   │   └── vehicleQruCodesApi.ts
 │   │   └── types.ts + types/*.ts
-│   │       └── stolenVehicles.ts
+│   │       ├── stolenVehicles.ts
+│   │       └── criminalWatch.ts
 │   ├── package.json
 │   └── nginx.conf
 ├── docker/
@@ -153,14 +164,16 @@ pelotao-system/
 | Aprovações | Lista pendente; aprovar com **role** obrigatória ou rejeitar (`ADMIN`, `N90`, `TAT_CMD`). |
 | Bootstrap admin | Admin opcional na subida via `.env` (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, …). |
 | Dashboard | Boas-vindas; **3 últimos logs** de viaturas; **3 últimos eventos** de escala; **afastados hoje** (folgas / férias / LP separados); alertas de dias críticos. |
-| Layout | Sidebar: Dashboard, Efetivo, **Escala de serviço**, Viaturas, Folgas, **Férias**, Perfil, **Aprovações**. |
+| Layout | Sidebar com grupos accordion: **Administrativo** (escala, viaturas, aprovações), **Afastamentos** (compensações, folgas, férias/LP), **Operacional** (furto/roubo, C05, QRUs); mais Dashboard, Efetivo, Perfil. |
 | Efetivo | Grupos visuais (Oficiais, SubTen/Sargentos, Cabos/Soldados, **Estágio**); DnD de antiguidade por patente; edição de **role** pelo staff; reorder otimista. |
 | Perfil | Campos operacionais; edições conforme RBAC. |
 | Viaturas | Listagem FT / ROCAM; criar / editar status (com motivo); timeline por viatura; feed global. |
 | Folgas e compensações | Calendário mensal; solicitações mensais ou com crédito; **REVIEW** automático ao exceder limites; hub de aprovação. |
 | Férias e LP | Calendário mensal; períodos de **15 ou 30 dias**; máx. **2** policiais simultâneos (Férias/LP); status + review do comando; flags de disponibilidade no efetivo. |
 | Escalas de serviço | Calendário mensal; múltiplas equipes/dia; FT (viatura + até 4 policiais) e ROCAM (até 3 policiais, **motos individuais**); rascunho/publicação; logs de auditoria; histórico; **exportação operacional**. |
-| **Veículos Produtos de Crime** | Cadastro de furto/roubo; grupo **0 a 9** automático pela placa; histórico permanente; consulta por placa/modelo/cor; localização; folha operacional **0 a 9** (carros/motos); impressão A4 inspirada na folha física. |
+| **Veículos Produtos de Crime** | Cadastro furto/roubo; grupo **0 a 9** automático; histórico; consulta; localização; **exclusão física** de registros incorretos; folha **0 a 9** (carros/motos); impressão A4. |
+| **Veículos C05** | Cadastro de veículos monitorados; associação a **QRU**; histórico de anotações; consulta; ficha técnica; exclusão; folha dos **15 mais recentes**; impressão A4. |
+| **QRUs operacionais** | CRUD administrativo: listar, cadastrar, editar, desativar; uso no cadastro C05. |
 | Health | `GET /health` |
 
 ---
@@ -229,8 +242,17 @@ Alembic: `006_vacations.py`, `007_service_scales.py` (após `001`–`005`).
 ### Veículos produtos de crime
 
 - **`stolen_vehicles`**: `vehicle_type` (`CARRO` \| `MOTO`), `plate`, `vehicle_model`, `color`, `year`, `occurrence_type` (`FURTO` \| `ROUBO`), `plate_group` (0 a 9), `observation`, `is_recovered`, `recovered_at`, `recovered_by_id`, `recovered_notes`, `created_by_id`, timestamps.
-- Registros **não são excluídos**; veículos localizados saem da folha operacional, mas permanecem no histórico e na consulta.
+- Veículos localizados saem da folha operacional, mas permanecem no histórico e na consulta (`is_recovered`).
+- **Exclusão física** (`DELETE /stolen-vehicles/{id}`) para cadastros incorretos, duplicados ou de teste.
 - Alembic: `012_stolen_vehicles.py`, `013_stolen_vehicles_recover_audit.py`.
+
+### Veículos C05 e QRUs operacionais
+
+- **`vehicle_qru_codes`**: `code`, `description`, `is_active`, `created_by_id`, timestamps.
+- **`criminal_watch_vehicles`**: `plate`, `vehicle_model`, `color`, `year`, `qru_code_id`, `created_by_id`, timestamps.
+- **`criminal_watch_notes`**: anotações operacionais por veículo (`vehicle_id`, `note`, `created_by_id`, timestamps); exclusão em cascata ao remover o veículo.
+- A folha operacional exibe os **15 registros mais recentes** (preenchimento de baixo para cima); histórico completo permanece no banco e na consulta.
+- Alembic: `014_criminal_watch_vehicles.py`.
 
 ---
 
@@ -342,13 +364,61 @@ Substituição digital da folha física **“0 a 9”** para acompanhamento de v
 
 - **Cadastro** de veículos (`CARRO` / `MOTO`, placa, veículo, cor, ano, `FURTO` / `ROUBO`, observação opcional).
 - **Classificação automática por grupo (0 a 9)** usando o **primeiro número** encontrado na placa (ex.: `FWB0F63` → grupo `0`).
-- **Histórico permanente** — nenhum registro é excluído automaticamente.
+- **Histórico permanente** — registros localizados permanecem consultáveis; exclusão física apenas para correções operacionais.
 - **Consulta** por placa, modelo ou cor (`GET /stolen-vehicles/search`).
 - **Marcação de veículo localizado** — exclusão lógica via `is_recovered` e `recovered_at` (com `recovered_by_id` e `recovered_notes` quando informados).
+- **Exclusão de registro** — remoção física para erro de digitação, duplicata ou teste (`DELETE /stolen-vehicles/{id}`).
 - **Folha operacional 0 a 9**: até **10 registros mais recentes não localizados** por grupo; preenchimento **de baixo para cima** (mais recente na linha inferior).
 - **Separação carros / motos** na folha e na impressão A4 (duas páginas).
 - Layout de tabela contínua por grupo, inspirado na folha física do pelotão (colunas: Placa, Veículo, Cor, Ano, F/R).
-- Frontend: `/veiculos-produtos-crime` — abas **Cadastro**, **Folha 0 a 9**, **Consulta**; menu **Veículos Produtos de Crime**.
+- Frontend: `/veiculos-produtos-crime` — abas **Cadastro**, **Folha 0 a 9**, **Consulta**; sidebar **Veículos Furto/Roubo** (grupo **Operacional**).
+
+---
+
+## Módulo Veículos C05
+
+Módulo operacional independente para monitoramento de veículos de interesse policial (tráfico, denúncias, atitudes suspeitas, ocorrências específicas).
+
+### Funcionalidades
+
+- **Cadastro** de veículos monitorados (placa, modelo, cor, ano, **QRU** via dropdown, anotação inicial).
+- **Associação a QRU operacional** — códigos não são texto livre; cada um possui `code` + `description` (ex.: `F01 — Drogas`).
+- **Histórico de anotações** — anotação inicial no cadastro; novas observações sem sobrescrever registros anteriores.
+- **Consulta** por placa, modelo, cor ou QRU (`GET /criminal-watch-vehicles/search`).
+- **Ficha técnica** — modal com dados do veículo, descrição do QRU, usuário que cadastrou, timeline de anotações; adicionar novas anotações; excluir veículo e anotações vinculadas.
+- **Folha operacional**: **15 registros mais recentes**; preenchimento **de baixo para cima**; registros mais antigos permanecem pesquisáveis e no histórico.
+- **Impressão A4** — folha única (partes da placa, modelo, cor por extenso, ano, QRU); otimizada para leitura a 1–2 m de distância.
+- Frontend: `/veiculos-c05` — abas **Cadastro**, **Folha**, **Consulta**, **QRUs**; sidebar **Veículos C05** e **Códigos Operacionais** (`?tab=qru`).
+
+---
+
+## QRUs operacionais
+
+Tabela de referência administrativa para classificação operacional no módulo C05.
+
+- **Listar** todos os códigos (`GET /vehicle-qru-codes/`).
+- **Listar ativos** para dropdown de cadastro (`GET /vehicle-qru-codes/active`).
+- **Cadastrar** (`POST /vehicle-qru-codes/`).
+- **Editar** código/descrição (`PATCH /vehicle-qru-codes/{id}`).
+- **Desativar** (`PATCH /vehicle-qru-codes/{id}/deactivate`) — códigos inativos não podem ser usados em novos cadastros.
+- Frontend: aba **QRUs** em `/veiculos-c05`, ou sidebar **Códigos Operacionais** (`/veiculos-c05?tab=qru`).
+
+---
+
+## Navegação da sidebar (atual)
+
+Layout agrupado com accordion em `OperationalLayout` (tema escuro, hamburger no mobile, destaque de rota ativa):
+
+| Item | Tipo | Subitens / rota |
+|------|------|-----------------|
+| **Dashboard** | Link | `/dashboard` |
+| **Efetivo** | Link | `/efetivo` |
+| **Administrativo** | Accordion | Escala de Serviço → `/escala-servico`; Viaturas → `/viaturas`; Aprovações → `/admin/pending-users` *(somente aprovador)* |
+| **Afastamentos** | Accordion | Compensações → `/compensacoes`; Folgas → `/folgas`; Férias / Licenças → `/afastamentos` |
+| **Operacional** | Accordion | Veículos Furto/Roubo → `/veiculos-produtos-crime`; Veículos C05 → `/veiculos-c05`; Códigos Operacionais → `/veiculos-c05?tab=qru` |
+| **Perfil** | Link | `/perfil` |
+
+As URLs permanecem as mesmas; apenas o agrupamento visual e os rótulos exibidos foram atualizados.
 
 ---
 
@@ -367,7 +437,14 @@ Substituição digital da folha física **“0 a 9”** para acompanhamento de v
 
 - **Calendário** (`GET /leaves/calendar`): visão mensal; **≥4** policiais de folga no dia → **crítico** (dashboard).
 - **Solicitações**, **compensações**, **aprovações** — comportamento central mantido; ver seções anteriores do README.
-- Frontend: `/folgas`, `/admin/pending-users`.
+- Frontend: `/folgas`, `/compensacoes`, `/admin/pending-users`.
+
+### Changelog — correção folgas/compensações
+
+- **Problema**: `GET /compensations/available` retornava HTTP 500 em produção quando o usuário possuía créditos reais; o navegador exibia erro de CORS enganoso.
+- **Causa raiz**: `leave_service.list_available_compensation_credits` retorna `event_date` como `datetime.date`, mas `UserCompensationAvailablePublic` declarava `event_date: str` — validação estrita do Pydantic v2 falhava.
+- **Correção**: `event_date: date` em `schemas/compensations.py`; FastAPI serializa para string ISO no JSON (`"2026-06-08"`).
+- **Por que dev vs produção**: em desenvolvimento a lista de créditos frequentemente vinha **vazia** (validação não executada); em produção havia registros `AVAILABLE` + `APPROVED` reais.
 
 ---
 
@@ -467,6 +544,28 @@ Substituição digital da folha física **“0 a 9”** para acompanhamento de v
 | GET | `/stolen-vehicles/search` | Busca por placa, modelo ou cor (`q`). |
 | GET | `/stolen-vehicles/sheet` | Folha operacional 0 a 9 (carros + motos, somente não localizados). |
 | PATCH | `/stolen-vehicles/{id}/recover` | Marcar veículo como localizado. |
+| DELETE | `/stolen-vehicles/{id}` | Exclusão física (registros incorretos/duplicados). |
+
+### Veículos C05 — `/criminal-watch-vehicles`
+
+| Método | Caminho | Auth / notas |
+|--------|---------|----------------|
+| POST | `/criminal-watch-vehicles/` | Cadastro + anotação inicial. |
+| GET | `/criminal-watch-vehicles/search` | Busca por placa, modelo, cor ou QRU (`q`). |
+| GET | `/criminal-watch-vehicles/sheet` | Folha operacional (15 slots, mais recentes). |
+| GET | `/criminal-watch-vehicles/{id}` | Ficha técnica com histórico de anotações. |
+| DELETE | `/criminal-watch-vehicles/{id}` | Exclusão física do veículo + anotações. |
+| POST | `/criminal-watch-vehicles/{id}/notes` | Nova anotação operacional. |
+
+### QRUs operacionais — `/vehicle-qru-codes`
+
+| Método | Caminho | Auth / notas |
+|--------|---------|----------------|
+| GET | `/vehicle-qru-codes/` | Listar todos os códigos. |
+| GET | `/vehicle-qru-codes/active` | Códigos ativos (dropdown de cadastro). |
+| POST | `/vehicle-qru-codes/` | Cadastrar código. |
+| PATCH | `/vehicle-qru-codes/{id}` | Editar código/descrição. |
+| PATCH | `/vehicle-qru-codes/{id}/deactivate` | Desativar código. |
 
 ### Outros
 
@@ -556,6 +655,15 @@ docker compose up --build
 - Estatísticas por tipo (`CARRO` / `MOTO`) e natureza (`FURTO` / `ROUBO`).  
 - Integração futura com **Heimdall**.  
 - Exportação PDF da folha 0 a 9 (além da impressão HTML).
+
+### C05 e inteligência operacional — evoluções futuras
+
+- Integração com **Heimdall** para correlação entre sistemas.  
+- **Dashboard operacional** dedicado (widgets C05 + furto/roubo).  
+- Estatísticas **por QRU** (contagens, tendências).  
+- **Correlação de veículos recorrentes** entre anotações e módulos.  
+- **Auditoria de alterações** em registros operacionais.  
+- Exportação **PDF** da folha C05 (além da impressão HTML).
 
 ---
 

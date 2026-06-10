@@ -67,3 +67,7 @@ export async function recoverStolenVehicle(
     body: JSON.stringify(payload ?? {}),
   });
 }
+
+export async function deleteStolenVehicle(token: string, vehicleId: number): Promise<void> {
+  return apiFetch<void>(`/stolen-vehicles/${vehicleId}`, { method: "DELETE", token });
+}

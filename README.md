@@ -3,7 +3,7 @@
 # Pelotão System
 
 **Web operations system for internal police platoon management**  
-Tactical unit / ROCAM · roster · profiles · patrol vehicles · leaves & compensations · vacations & LP · service scales · logs
+Tactical unit / ROCAM · roster · profiles · patrol vehicles · leaves & compensations · vacations & LP · service scales · stolen vehicles · C05 watch list · operational QRUs · logs
 
 [![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?style=flat-square)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://react.dev/)
@@ -41,6 +41,7 @@ Centralize, with traceability:
 - vehicle state (in service, out of service, maintenance, reserve) and **who** changed **what** and **why**;
 - monthly leave requests, compensation credits, vacations, and LP, with command approval and an auditable trail;
 - daily **service scales** (FT and ROCAM teams, missions, vehicles/motorcycles, publication);
+- operational **stolen vehicles** (theft/robbery sheet 0–9) and **C05 monitored vehicles** with operational QRU codes;
 - access driven by the officer’s **application role** (do not confuse institutional **rank** with app **role**).
 
 ---
@@ -105,33 +106,43 @@ Centralize, with traceability:
 ```text
 pelotao-system/
 ├── backend/
-│   ├── alembic/              # env.py + versions (001…013)
+│   ├── alembic/              # env.py + versions (001…014)
 │   ├── auth/                 # JWT, deps (approver, scale editor, vehicle editor, …)
 │   ├── core/                 # config, ranks, leave booking policy, compensation labels
 │   ├── database/             # Base, session
-│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, StolenVehicle, …
-│   │   └── stolen_vehicle.py
-│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales, stolen_vehicles
-│   │   └── stolen_vehicles.py
+│   ├── models/               # User, Vehicle, Leave, Vacation, ServiceScale, StolenVehicle, CriminalWatch, …
+│   │   ├── stolen_vehicle.py
+│   │   └── criminal_watch.py # VehicleQruCode, CriminalWatchVehicle, CriminalWatchNote
+│   ├── routes/               # auth, users, vehicles, leaves, compensations, vacations, service_scales, stolen_vehicles, criminal_watch, vehicle_qru_codes
+│   │   ├── stolen_vehicles.py
+│   │   ├── criminal_watch.py
+│   │   └── vehicle_qru_codes.py
 │   ├── schemas/              # Pydantic DTOs per domain
-│   │   └── stolen_vehicle.py
+│   │   ├── stolen_vehicle.py
+│   │   └── criminal_watch.py
 │   ├── services/             # domain services + scale_export_service.py
-│   │   └── stolen_vehicle_service.py
+│   │   ├── stolen_vehicle_service.py
+│   │   ├── criminal_watch_service.py
+│   │   └── vehicle_qru_code_service.py
 │   ├── main.py
 │   ├── requirements.txt
 │   └── docker-entrypoint.sh
 ├── frontend/
 │   ├── src/
-│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/, stolen-vehicles/
+│   │   ├── components/       # efetivo, vehicle/, folgas/, vacations/, service-scales/, stolen-vehicles/, criminal-watch/
 │   │   ├── constants/        # ranks.ts (visual groups)
 │   │   ├── hooks/            # AuthContext
-│   │   ├── layouts/          # OperationalLayout (sidebar)
-│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, StolenVehicles, Folgas, Férias, Escala, Perfil, Approvals
-│   │   │   └── StolenVehiclesPage.tsx
+│   │   ├── layouts/          # OperationalLayout (sidebar with accordion groups)
+│   │   ├── pages/            # Dashboard, Efetivo, Viaturas, StolenVehicles, CriminalWatchVehicles, Folgas, Férias, Escala, Perfil, Approvals
+│   │   │   ├── StolenVehiclesPage.tsx
+│   │   │   └── CriminalWatchVehiclesPage.tsx
 │   │   ├── services/         # api clients per module
-│   │   │   └── stolenVehiclesApi.ts
+│   │   │   ├── stolenVehiclesApi.ts
+│   │   │   ├── criminalWatchApi.ts
+│   │   │   └── vehicleQruCodesApi.ts
 │   │   └── types.ts + types/*.ts
-│   │       └── stolenVehicles.ts
+│   │       ├── stolenVehicles.ts
+│   │       └── criminalWatch.ts
 │   ├── package.json
 │   └── nginx.conf
 ├── docker/
@@ -153,14 +164,16 @@ pelotao-system/
 | Approvals | Pending list; approve with required **role** or reject (`ADMIN`, `N90`, `TAT_CMD`). |
 | Admin bootstrap | Optional admin on startup via `.env` (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, …). |
 | Dashboard | Welcome; **3 latest vehicle logs**; **3 latest scale events**; command **away today** (leaves / vacations / LP split); critical-day alerts. |
-| Layout | Sidebar: Dashboard, Roster, **Service scale**, Vehicles, Leaves, **Vacations**, Profile, **Approvals**. |
+| Layout | Sidebar with accordion groups: **Administrative** (service scale, vehicles, approvals), **Leaves** (compensations, monthly leaves, vacations/LP), **Operational** (stolen vehicles, C05, operational QRUs); plus Dashboard, Roster, Profile. |
 | Roster | Visual groups (Officers, NCOs, Enlisted, **Internship**); DnD seniority per rank; staff **role** editing; optimistic reorder. |
 | Profile | Operational fields; edits per RBAC. |
 | Vehicles | FT / ROCAM listing; create / edit status (with reason); per-vehicle log timeline; global feed. |
 | Leaves & compensations | Monthly calendar; monthly or compensation-credit requests; automatic **REVIEW** when limits exceeded; approval hub. |
 | Vacations & LP | Monthly calendar; **15- or 30-day** periods; max **2** simultaneous officers (Férias/LP); statuses + command review; roster availability flags. |
 | Service scales | Monthly calendar; multiple teams/day; FT (vehicle + up to 4 officers) and ROCAM (up to 3 officers, **individual motorcycles**); draft/publish; audit logs; history; **operational export**. |
-| **Stolen vehicles (crime products)** | Register theft/robbery vehicles; automatic **plate group (0–9)**; permanent history; search by plate/model/color; mark as recovered; operational **0–9 sheet** (cars/motorcycles); A4 print layout inspired by the physical platoon form. |
+| **Stolen vehicles (crime products)** | Register theft/robbery vehicles; automatic **plate group (0–9)**; permanent history; search; mark as recovered; **physical delete** for incorrect/duplicate records; operational **0–9 sheet** (cars/motorcycles); A4 print. |
+| **C05 monitored vehicles** | Register vehicles of police interest; link to **operational QRU** codes; append-only operational notes; search; technical sheet modal; physical delete; operational sheet (**15 most recent**); A4 print. |
+| **Operational QRU codes** | Admin CRUD: list, create, edit, deactivate; used in C05 vehicle registration (dropdown). |
 | Health | `GET /health` |
 
 ---
@@ -229,8 +242,17 @@ Alembic: `006_vacations.py`, `007_service_scales.py` (after `001`–`005`).
 ### Stolen vehicles (crime products)
 
 - **`stolen_vehicles`**: `vehicle_type` (`CARRO` \| `MOTO`), `plate`, `vehicle_model`, `color`, `year`, `occurrence_type` (`FURTO` \| `ROUBO`), `plate_group` (0–9), `observation`, `is_recovered`, `recovered_at`, `recovered_by_id`, `recovered_notes`, `created_by_id`, timestamps.
-- Records are **never deleted**; recovered vehicles leave the operational sheet but remain searchable in history.
+- Recovered vehicles leave the operational sheet but remain searchable in history (`is_recovered`).
+- **Physical delete** (`DELETE /stolen-vehicles/{id}`) for incorrect, duplicate, or test records.
 - Alembic: `012_stolen_vehicles.py`, `013_stolen_vehicles_recover_audit.py`.
+
+### C05 monitored vehicles & operational QRUs
+
+- **`vehicle_qru_codes`**: `code`, `description`, `is_active`, `created_by_id`, timestamps.
+- **`criminal_watch_vehicles`**: `plate`, `vehicle_model`, `color`, `year`, `qru_code_id`, `created_by_id`, timestamps.
+- **`criminal_watch_notes`**: append-only operational notes per vehicle (`vehicle_id`, `note`, `created_by_id`, timestamps); cascade delete when vehicle is removed.
+- Operational sheet shows the **15 most recent** vehicles (bottom-up fill); full history remains in the database and search.
+- Alembic: `014_criminal_watch_vehicles.py`.
 
 ---
 
@@ -343,9 +365,57 @@ Operational replacement for the physical **“0 to 9”** sheet used to track th
 - **Permanent history** — no automatic deletion.
 - **Search** by plate, vehicle model, or color (`GET /stolen-vehicles/search`).
 - **Mark as recovered** — logical removal from the sheet via `is_recovered` + `recovered_at` (and `recovered_by_id` / `recovered_notes` when provided).
+- **Delete record** — physical removal for typos, duplicates, or test entries (`DELETE /stolen-vehicles/{id}`).
 - **Operational sheet 0–9**: up to **10 most recent non-recovered** records per group; **bottom-up** fill (newest at the bottom row).
 - **Cars / motorcycles** on separate A4 print pages; continuous table layout per group (columns: Placa, Veículo, Cor, Ano, F/R).
-- Frontend: `/veiculos-produtos-crime` — tabs **Register**, **Sheet 0–9**, **Search**; sidebar **Veículos Produtos de Crime**.
+- Frontend: `/veiculos-produtos-crime` — tabs **Register**, **Sheet 0–9**, **Search**; sidebar **Veículos Furto/Roubo** (under **Operational**).
+
+---
+
+## C05 monitored vehicles module
+
+Independent operational module for vehicles linked to criminal activity, reports, suspicious behavior, and police-interest occurrences.
+
+### Features
+
+- **Register** monitored vehicles (plate, model, color, year, **QRU** from dropdown, initial note).
+- **Operational QRU association** — codes are not free text; each has `code` + `description` (e.g. `F01 — Drugs`).
+- **Append-only note history** — initial note on create; new notes added without overwriting previous entries.
+- **Search** by plate, model, color, or QRU (`GET /criminal-watch-vehicles/search`).
+- **Technical sheet** — modal with vehicle data, QRU description, creator, full note timeline; add new notes; delete vehicle + linked notes.
+- **Operational sheet**: **15 most recent** records; **bottom-up** fill; older records remain searchable and in note history.
+- **A4 print** — single-page layout (plate parts, model, full color name, year, QRU); optimized for reading at 1–2 m distance.
+- Frontend: `/veiculos-c05` — tabs **Register**, **Sheet**, **Search**, **QRUs**; sidebar **Veículos C05** and **Códigos Operacionais** (`?tab=qru`).
+
+---
+
+## Operational QRU codes
+
+Administrative reference table for C05 operational classification.
+
+- **List** all codes (`GET /vehicle-qru-codes/`).
+- **List active** codes for registration dropdown (`GET /vehicle-qru-codes/active`).
+- **Create** (`POST /vehicle-qru-codes/`).
+- **Edit** code/description (`PATCH /vehicle-qru-codes/{id}`).
+- **Deactivate** (`PATCH /vehicle-qru-codes/{id}/deactivate`) — inactive codes cannot be used in new registrations.
+- Frontend: tab **QRUs** inside `/veiculos-c05`, or sidebar **Códigos Operacionais** (`/veiculos-c05?tab=qru`).
+
+---
+
+## Sidebar navigation (current)
+
+Grouped accordion layout in `OperationalLayout` (dark theme, mobile hamburger, active route highlighting):
+
+| Item | Type | Children / route |
+|------|------|------------------|
+| **Dashboard** | Link | `/dashboard` |
+| **Efetivo** | Link | `/efetivo` |
+| **Administrativo** | Accordion | Escala de Serviço → `/escala-servico`; Viaturas → `/viaturas`; Aprovações → `/admin/pending-users` *(approver only)* |
+| **Afastamentos** | Accordion | Compensações → `/compensacoes`; Folgas → `/folgas`; Férias / Licenças → `/afastamentos` |
+| **Operacional** | Accordion | Veículos Furto/Roubo → `/veiculos-produtos-crime`; Veículos C05 → `/veiculos-c05`; Códigos Operacionais → `/veiculos-c05?tab=qru` |
+| **Perfil** | Link | `/perfil` |
+
+URLs are unchanged; only navigation grouping and display labels were updated.
 
 ---
 
@@ -364,7 +434,14 @@ Operational replacement for the physical **“0 to 9”** sheet used to track th
 
 - **Calendar** (`GET /leaves/calendar`): monthly leave view; **≥4** officers out on a day → **critical** (dashboard).
 - **Requests**, **compensations**, **approvals** — unchanged core behavior; see prior README sections.
-- Frontend: `/folgas`, `/admin/pending-users`.
+- Frontend: `/folgas`, `/compensacoes`, `/admin/pending-users`.
+
+### Changelog — leaves/compensations fix
+
+- **Issue**: `GET /compensations/available` returned HTTP 500 in production when users had real compensation credits; browser showed a misleading CORS error.
+- **Root cause**: `leave_service.list_available_compensation_credits` returns `event_date` as `datetime.date`, but `UserCompensationAvailablePublic` declared `event_date: str` — Pydantic v2 strict validation failed.
+- **Fix**: `event_date: date` in `schemas/compensations.py`; FastAPI serializes to ISO string in JSON (`"2026-06-08"`).
+- **Why dev vs prod**: local environments often returned an **empty** credit list (no validation run); production had real `AVAILABLE` + `APPROVED` records.
 
 ---
 
@@ -464,6 +541,28 @@ Operational replacement for the physical **“0 to 9”** sheet used to track th
 | GET | `/stolen-vehicles/search` | Search by plate, model, or color (`q`). |
 | GET | `/stolen-vehicles/sheet` | Operational 0–9 sheet (cars + motorcycles, non-recovered only). |
 | PATCH | `/stolen-vehicles/{id}/recover` | Mark vehicle as recovered. |
+| DELETE | `/stolen-vehicles/{id}` | Physical delete (incorrect/duplicate records). |
+
+### C05 monitored vehicles — `/criminal-watch-vehicles`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| POST | `/criminal-watch-vehicles/` | Create vehicle + initial note. |
+| GET | `/criminal-watch-vehicles/search` | Search by plate, model, color, or QRU (`q`). |
+| GET | `/criminal-watch-vehicles/sheet` | Operational sheet (15 slots, most recent). |
+| GET | `/criminal-watch-vehicles/{id}` | Technical sheet with full note history. |
+| DELETE | `/criminal-watch-vehicles/{id}` | Physical delete vehicle + notes. |
+| POST | `/criminal-watch-vehicles/{id}/notes` | Append operational note. |
+
+### Operational QRU codes — `/vehicle-qru-codes`
+
+| Method | Path | Auth / notes |
+|--------|------|----------------|
+| GET | `/vehicle-qru-codes/` | List all codes. |
+| GET | `/vehicle-qru-codes/active` | Active codes (registration dropdown). |
+| POST | `/vehicle-qru-codes/` | Create code. |
+| PATCH | `/vehicle-qru-codes/{id}` | Edit code/description. |
+| PATCH | `/vehicle-qru-codes/{id}/deactivate` | Deactivate code. |
 
 ### Other
 
@@ -553,6 +652,15 @@ docker compose up --build
 - Statistics by vehicle type and nature (`FURTO` / `ROUBO`).  
 - Future integration with **Heimdall**.  
 - PDF export of the 0–9 sheet (in addition to HTML print).
+
+### C05 & operational intelligence — future
+
+- **Heimdall** integration for cross-system vehicle correlation.  
+- Dedicated **operational dashboard** (C05 + stolen vehicles widgets).  
+- Statistics **by QRU** (counts, trends).  
+- **Recurring vehicle** correlation across notes and modules.  
+- **Change audit** for operational records (who edited/deleted what).  
+- **PDF export** for C05 operational sheet (in addition to HTML print).
 
 ---
 

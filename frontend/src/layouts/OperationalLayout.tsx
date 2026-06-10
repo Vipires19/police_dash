@@ -1,29 +1,143 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  Briefcase,
   CalendarDays,
+  CalendarRange,
   Car,
+  ChevronDown,
   ClipboardList,
   Gift,
-  Palmtree,
   LayoutDashboard,
-  CalendarRange,
   Menu,
+  Palmtree,
+  Radio,
+  ScanSearch,
   Shield,
+  Tags,
   Truck,
   UserCircle,
   Users,
   X,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/AuthContext";
 
 const linkBase =
   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-wide transition-colors";
 
+const subLinkBase =
+  "flex items-center gap-2.5 rounded-lg py-2 pl-9 pr-3 text-sm font-medium tracking-wide transition-colors";
+
+type NavItem = { to: string; label: string; icon: LucideIcon };
+
+type NavGroup = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  items: NavItem[];
+};
+
+function matchNavTarget(pathname: string, search: string, to: string): boolean {
+  const [path, queryString] = to.split("?");
+  if (pathname !== path) return false;
+  if (!queryString) {
+    if (path === "/veiculos-c05") {
+      const tab = new URLSearchParams(search).get("tab");
+      return tab !== "qru";
+    }
+    return true;
+  }
+  const expected = new URLSearchParams(queryString);
+  const current = new URLSearchParams(search);
+  for (const [key, value] of expected.entries()) {
+    if (current.get(key) !== value) return false;
+  }
+  return true;
+}
+
+function isGroupActive(pathname: string, search: string, items: NavItem[]): boolean {
+  return items.some((item) => matchNavTarget(pathname, search, item.to));
+}
+
+function NavGroupSection({
+  group,
+  pathname,
+  search,
+  onNavigate,
+}: {
+  group: NavGroup;
+  pathname: string;
+  search: string;
+  onNavigate: () => void;
+}) {
+  const groupActive = isGroupActive(pathname, search, group.items);
+  const [open, setOpen] = useState(groupActive);
+
+  useEffect(() => {
+    if (groupActive) setOpen(true);
+  }, [groupActive]);
+
+  const subLinkClass = (to: string) => {
+    const active = matchNavTarget(pathname, search, to);
+    return [
+      subLinkBase,
+      active
+        ? "bg-gradient-to-r from-zinc-800 to-zinc-900 text-zinc-50 ring-1 ring-zinc-600/60"
+        : "text-zinc-500 hover:bg-zinc-900/80 hover:text-zinc-200",
+    ].join(" ");
+  };
+
+  return (
+    <div className="space-y-0.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={[
+          linkBase,
+          "w-full justify-between",
+          groupActive ? "text-zinc-200" : "text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100",
+        ].join(" ")}
+        aria-expanded={open}
+      >
+        <span className="flex items-center gap-3">
+          <group.icon className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.75} />
+          {group.label}
+        </span>
+        <ChevronDown
+          className={[
+            "h-4 w-4 shrink-0 opacity-60 transition-transform duration-200",
+            open ? "rotate-180" : "",
+          ].join(" ")}
+          strokeWidth={1.75}
+        />
+      </button>
+
+      <div
+        className={[
+          "grid transition-[grid-template-rows] duration-200 ease-out",
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        ].join(" ")}
+      >
+        <div className="overflow-hidden">
+          <div className="space-y-0.5 pb-0.5 pt-0.5">
+            {group.items.map(({ to, label, icon: Icon }) => (
+              <NavLink key={to} to={to} className={subLinkClass(to)} onClick={onNavigate}>
+                <Icon className="h-3.5 w-3.5 shrink-0 opacity-75" strokeWidth={1.75} />
+                {label}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function OperationalLayout({ children }: { children: ReactNode }) {
   const { user, logout, isApprover, canRegisterCompensation } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleLogout = () => {
@@ -39,21 +153,44 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
         : "text-zinc-400 hover:bg-zinc-900/80 hover:text-zinc-100",
     ].join(" ");
 
-  const items: { to: string; label: string; icon: LucideIcon }[] = [
-    { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { to: "/efetivo", label: "Efetivo", icon: Users },
-    { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
-    { to: "/viaturas", label: "Viaturas", icon: Truck },
-    { to: "/veiculos-produtos-crime", label: "Veículos Produtos de Crime", icon: Car },
-    { to: "/compensacoes", label: "Compensações", icon: Gift },
-    { to: "/folgas", label: "Folgas", icon: CalendarDays },
-    { to: "/afastamentos", label: "Afastamentos", icon: Palmtree },
-    { to: "/perfil", label: "Perfil", icon: UserCircle },
-  ];
+  const adminGroup: NavGroup = useMemo(() => {
+    const items: NavItem[] = [
+      { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
+      { to: "/viaturas", label: "Viaturas", icon: Truck },
+    ];
+    if (isApprover || canRegisterCompensation) {
+      items.push({ to: "/admin/pending-users", label: "Aprovações", icon: ClipboardList });
+    }
+    return { id: "admin", label: "Administrativo", icon: Briefcase, items };
+  }, [isApprover, canRegisterCompensation]);
 
-  if (isApprover || canRegisterCompensation) {
-    items.push({ to: "/admin/pending-users", label: "Aprovações", icon: ClipboardList });
-  }
+  const afastamentosGroup: NavGroup = useMemo(
+    () => ({
+      id: "afastamentos",
+      label: "Afastamentos",
+      icon: Palmtree,
+      items: [
+        { to: "/compensacoes", label: "Compensações", icon: Gift },
+        { to: "/folgas", label: "Folgas", icon: CalendarDays },
+        { to: "/afastamentos", label: "Férias / Licenças", icon: Palmtree },
+      ],
+    }),
+    [],
+  );
+
+  const operacionalGroup: NavGroup = useMemo(
+    () => ({
+      id: "operacional",
+      label: "Operacional",
+      icon: Radio,
+      items: [
+        { to: "/veiculos-produtos-crime", label: "Veículos Furto/Roubo", icon: Car },
+        { to: "/veiculos-c05", label: "Veículos C05", icon: ScanSearch },
+        { to: "/veiculos-c05?tab=qru", label: "Códigos Operacionais", icon: Tags },
+      ],
+    }),
+    [],
+  );
 
   const closeMobile = () => setSidebarOpen(false);
 
@@ -89,13 +226,42 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-1 p-3">
-          {items.map(({ to, label, icon: Icon }) => (
-            <NavLink key={to} to={to} className={linkClass} onClick={closeMobile}>
-              <Icon className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.75} />
-              {label}
-            </NavLink>
-          ))}
+        <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-3">
+          <NavLink to="/dashboard" className={linkClass} onClick={closeMobile}>
+            <LayoutDashboard className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.75} />
+            Dashboard
+          </NavLink>
+
+          <NavLink to="/efetivo" className={linkClass} onClick={closeMobile}>
+            <Users className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.75} />
+            Efetivo
+          </NavLink>
+
+          <NavGroupSection
+            group={adminGroup}
+            pathname={location.pathname}
+            search={location.search}
+            onNavigate={closeMobile}
+          />
+
+          <NavGroupSection
+            group={afastamentosGroup}
+            pathname={location.pathname}
+            search={location.search}
+            onNavigate={closeMobile}
+          />
+
+          <NavGroupSection
+            group={operacionalGroup}
+            pathname={location.pathname}
+            search={location.search}
+            onNavigate={closeMobile}
+          />
+
+          <NavLink to="/perfil" className={linkClass} onClick={closeMobile}>
+            <UserCircle className="h-4 w-4 shrink-0 opacity-80" strokeWidth={1.75} />
+            Perfil
+          </NavLink>
         </nav>
 
         <div className="border-t border-zinc-800/80 p-3">

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -85,7 +85,7 @@ class UserCompensationAvailablePublic(BaseModel):
     id: int
     compensation_type: CompensationType = Field(validation_alias="type", serialization_alias="type")
     label: str
-    event_date: str
+    event_date: date
     description: str
 
 

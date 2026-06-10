@@ -22,6 +22,8 @@ export function StolenVehicleSearch({ token, onRecovered }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [recoveringId, setRecoveringId] = useState<number | null>(null);
   const [recoverNotes, setRecoverNotes] = useState("");
+  const [deleteTargetId, setDeleteTargetId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +56,21 @@ export function StolenVehicleSearch({ token, onRecovered }: Props) {
       setError(err instanceof ApiError ? err.detail : "Erro ao marcar como localizado");
     } finally {
       setRecoveringId(null);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeletingId(id);
+    setError(null);
+    try {
+      await stolenVehiclesApi.deleteStolenVehicle(token, id);
+      setDeleteTargetId(null);
+      setResults((prev) => prev.filter((r) => r.id !== id));
+      onRecovered();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail : "Erro ao excluir registro");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -153,15 +170,56 @@ export function StolenVehicleSearch({ token, onRecovered }: Props) {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {!row.is_recovered && (
-                      <button
-                        type="button"
-                        disabled={recoveringId === row.id}
-                        onClick={() => void handleRecover(row.id)}
-                        className="rounded-md border border-emerald-800/60 bg-emerald-950/40 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-900/40 disabled:opacity-50"
-                      >
-                        {recoveringId === row.id ? "Salvando…" : "Marcar como localizado"}
-                      </button>
+                    {deleteTargetId === row.id ? (
+                      <div className="inline-flex flex-col items-end gap-2 text-left">
+                        <p className="max-w-xs text-xs text-zinc-400">
+                          Tem certeza que deseja excluir este veículo?
+                          <br />
+                          Esta ação não poderá ser desfeita.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            disabled={deletingId === row.id}
+                            onClick={() => setDeleteTargetId(null)}
+                            className="rounded-md border border-zinc-600 bg-zinc-900/60 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800/60 disabled:opacity-50"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={deletingId === row.id}
+                            onClick={() => void handleDelete(row.id)}
+                            className="rounded-md border border-red-800/60 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+                          >
+                            {deletingId === row.id ? "Excluindo…" : "Excluir"}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {!row.is_recovered && (
+                          <button
+                            type="button"
+                            disabled={recoveringId === row.id}
+                            onClick={() => void handleRecover(row.id)}
+                            className="rounded-md border border-emerald-800/60 bg-emerald-950/40 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-900/40 disabled:opacity-50"
+                          >
+                            {recoveringId === row.id ? "Salvando…" : "Marcar como localizado"}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={deletingId === row.id}
+                          onClick={() => {
+                            setDeleteTargetId(row.id);
+                            setRecoveringId(null);
+                          }}
+                          className="rounded-md border border-red-800/60 bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-300 hover:bg-red-900/40 disabled:opacity-50"
+                        >
+                          Excluir registro
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
