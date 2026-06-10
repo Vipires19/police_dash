@@ -323,27 +323,27 @@ Exemplo de texto exportado (resumido):
 
 ```text
 💀 ESCALA DE SERVIÇO 💀
-1° PELOTÃO DE FORÇA TÁTICA
+X° PELOTÃO DE FORÇA TÁTICA
 
 Dia 07 de Março de 2026
 Qtr: 12:45hs
 
 I-03027
-Ten Carvalho
-Sd Martins
+Ten Stive
+Sd Mike
 
 ROCAM 1
-Cb Broisler -> Moto I-03066-11
-Sd Bispo -> Moto I-03067-11
+Cb Billy -> Moto I-03066-11
+Sd Billy2 -> Moto I-03067-11
 
 Folga do mês:
-Sd De Paula
+Sd Steve2
 
 Férias:
-Cb Araújo
+Cb Mike2
 
 LP:
-Sd Custódio
+Sd Antedeguemon
 ```
 
 Horários fora do padrão 06:00–18:00 no dia da escala exibem empenho + faixa horária antes do bloco da equipe.
