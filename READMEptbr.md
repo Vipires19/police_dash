@@ -57,8 +57,6 @@ Centralizar, com rastreabilidade:
 [Escala de serviço](docs/screenshots/escala-servico.png)  
 [Exportação da escala (WhatsApp)](docs/screenshots/escala-export.png)
 
-> Caminhos placeholder para novas capturas — adicione PNGs em `docs/screenshots/` quando disponíveis.
-
 ---
 
 ## Stack
