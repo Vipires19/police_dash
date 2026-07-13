@@ -45,7 +45,7 @@ export async function pendingUsersRequest(token: string): Promise<User[]> {
 export async function approveUserRequest(
   token: string,
   userId: number,
-  body: { decision: "approve" | "reject"; role?: string },
+  body: { decision: "approve" | "reject"; role?: string; organizational_unit?: string },
 ): Promise<User> {
   return apiFetch<User>(`/users/approve/${userId}`, {
     method: "POST",

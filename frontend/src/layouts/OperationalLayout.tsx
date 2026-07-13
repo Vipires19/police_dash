@@ -18,10 +18,13 @@ import {
   UserCircle,
   Users,
   X,
+  CalendarClock,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/AuthContext";
+import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
+import { PLATFORM_BRAND } from "@/types";
 
 const linkBase =
   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium tracking-wide transition-colors";
@@ -40,6 +43,9 @@ type NavGroup = {
 
 function matchNavTarget(pathname: string, search: string, to: string): boolean {
   const [path, queryString] = to.split("?");
+  if (path === "/dejem" && (pathname === "/dejem" || pathname.startsWith("/dejem/"))) {
+    return true;
+  }
   if (pathname !== path) return false;
   if (!queryString) {
     if (path === "/veiculos-c05") {
@@ -135,7 +141,7 @@ function NavGroupSection({
 }
 
 export function OperationalLayout({ children }: { children: ReactNode }) {
-  const { user, logout, isApprover, canRegisterCompensation } = useAuth();
+  const { user, logout, isApprover } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -156,13 +162,15 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
   const adminGroup: NavGroup = useMemo(() => {
     const items: NavItem[] = [
       { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
+      { to: "/dejem", label: "DEJEM", icon: CalendarClock },
       { to: "/viaturas", label: "Viaturas", icon: Truck },
     ];
-    if (isApprover || canRegisterCompensation) {
+    // Menu Aprovações: apenas roles com poder decisório (ADMIN, CMD_TATICO, TAT_CMD, N90).
+    if (isApprover) {
       items.push({ to: "/admin/pending-users", label: "Aprovações", icon: ClipboardList });
     }
     return { id: "admin", label: "Administrativo", icon: Briefcase, items };
-  }, [isApprover, canRegisterCompensation]);
+  }, [isApprover]);
 
   const afastamentosGroup: NavGroup = useMemo(
     () => ({
@@ -214,7 +222,12 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
         <div className="flex items-center justify-between border-b border-zinc-800/80 px-4 py-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-zinc-500">Operacional</p>
-            <p className="mt-1 text-sm font-semibold leading-tight text-zinc-100">1° Pel FT/ROCAM</p>
+            <p className="mt-1 text-sm font-semibold leading-tight text-zinc-100">{PLATFORM_BRAND}</p>
+            {user && (
+              <div className="mt-2">
+                <OrgUnitBadge variant={orgBadgeVariantForViewer(user)} />
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -294,7 +307,7 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </button>
-          <span className="text-sm font-medium text-zinc-200">Painel operacional</span>
+          <span className="text-sm font-medium text-zinc-200">{PLATFORM_BRAND}</span>
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>

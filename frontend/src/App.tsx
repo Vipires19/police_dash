@@ -16,6 +16,9 @@ import { ViaturasPage } from "@/pages/ViaturasPage";
 import { CompensationsPage } from "@/pages/CompensationsPage";
 import { StolenVehiclesPage } from "@/pages/StolenVehiclesPage";
 import { CriminalWatchVehiclesPage } from "@/pages/CriminalWatchVehiclesPage";
+import { DejemPage } from "@/pages/DejemPage";
+import { DejemAdminPage } from "@/pages/DejemAdminPage";
+import { DejemMyPage } from "@/pages/DejemMyPage";
 
 function RootRedirect() {
   const { token, user, loading } = useAuth();
@@ -134,6 +137,30 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <ServiceScalePage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/dejem",
+    element: (
+      <ProtectedRoute>
+        <DejemPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/dejem/admin",
+    element: (
+      <ProtectedRoute>
+        <DejemAdminPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/dejem/my",
+    element: (
+      <ProtectedRoute>
+        <DejemMyPage />
       </ProtectedRoute>
     ),
   },

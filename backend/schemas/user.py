@@ -7,10 +7,18 @@ from pydantic import BaseModel, EmailStr, Field, model_validator
 
 class RoleEnum(str, Enum):
     ADMIN = "ADMIN"
-    N90 = "N90"
+    CMD_TATICO = "CMD_TATICO"
     TAT_CMD = "TAT_CMD"
+    ADM = "ADM"
+    N90 = "N90"
     BRACAL = "BRACAL"
     ESTAGIO = "ESTAGIO"
+
+
+class OrganizationalUnitEnum(str, Enum):
+    FIRST_PLATOON = "FIRST_PLATOON"
+    SECOND_PLATOON = "SECOND_PLATOON"
+    COMPANY_ADMIN = "COMPANY_ADMIN"
 
 
 class StatusEnum(str, Enum):
@@ -50,6 +58,7 @@ class UserPublic(BaseModel):
     display_order: int
     is_active: bool
     role: RoleEnum
+    organizational_unit: OrganizationalUnitEnum
     status: StatusEnum
     created_at: datetime
 
@@ -67,6 +76,7 @@ class UserProfileUpdate(BaseModel):
     nome_guerra: str | None = Field(default=None, min_length=1, max_length=128)
     is_active: bool | None = None
     role: RoleEnum | None = None
+    organizational_unit: OrganizationalUnitEnum | None = None
 
 
 class EfetivoReorderBody(BaseModel):
@@ -77,9 +87,13 @@ class EfetivoReorderBody(BaseModel):
 class ApproveUserBody(BaseModel):
     decision: Literal["approve", "reject"]
     role: RoleEnum | None = None
+    organizational_unit: OrganizationalUnitEnum | None = None
 
     @model_validator(mode="after")
-    def require_role_on_approve(self):
-        if self.decision == "approve" and self.role is None:
-            raise ValueError("role é obrigatório quando decision=approve")
+    def require_role_and_unit_on_approve(self):
+        if self.decision == "approve":
+            if self.role is None:
+                raise ValueError("role é obrigatório quando decision=approve")
+            if self.organizational_unit is None:
+                raise ValueError("organizational_unit é obrigatório quando decision=approve")
         return self

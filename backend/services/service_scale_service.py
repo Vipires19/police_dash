@@ -45,10 +45,12 @@ _ACTIVE_VACATION = (VacationStatus.PENDING, VacationStatus.REVIEW, VacationStatu
 def _operational_rank(role: UserRole) -> int:
     order = {
         UserRole.ADMIN: 0,
-        UserRole.N90: 1,
-        UserRole.TAT_CMD: 2,
-        UserRole.BRACAL: 3,
-        UserRole.ESTAGIO: 4,
+        UserRole.CMD_TATICO: 1,
+        UserRole.N90: 2,
+        UserRole.TAT_CMD: 3,
+        UserRole.ADM: 4,
+        UserRole.BRACAL: 5,
+        UserRole.ESTAGIO: 6,
     }
     return order.get(role, 99)
 

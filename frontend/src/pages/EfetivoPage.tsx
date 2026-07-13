@@ -11,9 +11,18 @@ import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSo
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { SortablePoliceRow } from "@/components/SortablePoliceRow";
+import { OrgUnitBadge, orgBadgeVariantForUnit, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
 import { useAuth } from "@/hooks/AuthContext";
-import type { Role, User } from "@/types";
-import { isStaffEditor } from "@/types";
+import type { OrganizationalUnit, Role, User } from "@/types";
+import {
+  ALL_ROLES,
+  ORGANIZATIONAL_UNITS,
+  ORGANIZATIONAL_UNIT_LABELS,
+  ORGANIZATIONAL_UNIT_ORDER,
+  ORGANIZATIONAL_UNIT_SECTION_LABELS,
+  canViewCompanyEfetivo,
+  isStaffEditor,
+} from "@/types";
 import {
   ESTAGIO_SECTION_LABEL,
   type VisualRankGroup,
@@ -35,7 +44,8 @@ const PATENTES_SELECT = [
   "SD",
 ];
 
-const ROLES_SELECT: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL", "ESTAGIO"];
+const ROLES_SELECT: Role[] = ALL_ROLES;
+const UNITS_SELECT: OrganizationalUnit[] = ORGANIZATIONAL_UNITS;
 
 const VISUAL_GROUP_ORDER: VisualRankGroup[] = ["OFFICERS", "NCOS", "ENLISTED"];
 
@@ -146,6 +156,7 @@ const PatenteBlock = memo(function PatenteBlock({
   onOpen,
   onReordered,
   showEstagioBadge = false,
+  showUnitBadge = false,
 }: {
   patenteDb: string;
   users: User[];
@@ -153,6 +164,7 @@ const PatenteBlock = memo(function PatenteBlock({
   onOpen: (u: User) => void;
   onReordered: (patente: string, ids: number[]) => void;
   showEstagioBadge?: boolean;
+  showUnitBadge?: boolean;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -191,6 +203,7 @@ const PatenteBlock = memo(function PatenteBlock({
                 user={u}
                 dragDisabled={!canReorder}
                 showEstagioBadge={showEstagioBadge}
+                showUnitBadge={showUnitBadge}
                 onOpen={() => onOpen(u)}
               />
             ))}
@@ -205,12 +218,14 @@ function VisualGroupSection({
   label,
   patentes,
   canReorder,
+  showUnitBadge,
   onOpen,
   onReordered,
 }: {
   label: string;
   patentes: PatenteGroup[];
   canReorder: boolean;
+  showUnitBadge: boolean;
   onOpen: (u: User) => void;
   onReordered: (patente: string, ids: number[]) => void;
 }) {
@@ -228,6 +243,7 @@ function VisualGroupSection({
             patenteDb={p.patenteDb}
             users={p.users}
             canReorder={canReorder}
+            showUnitBadge={showUnitBadge}
             onOpen={onOpen}
             onReordered={onReordered}
           />
@@ -240,11 +256,13 @@ function VisualGroupSection({
 function EstagioSection({
   patentes,
   canReorder,
+  showUnitBadge,
   onOpen,
   onReordered,
 }: {
   patentes: PatenteGroup[];
   canReorder: boolean;
+  showUnitBadge: boolean;
   onOpen: (u: User) => void;
   onReordered: (patente: string, ids: number[]) => void;
 }) {
@@ -273,6 +291,7 @@ function EstagioSection({
             users={p.users}
             canReorder={canReorder}
             showEstagioBadge
+            showUnitBadge={showUnitBadge}
             onOpen={onOpen}
             onReordered={onReordered}
           />
@@ -318,6 +337,7 @@ function Drawer({
       nome_guerra: user.nome_guerra,
       is_active: user.is_active,
       role: user.role,
+      organizational_unit: user.organizational_unit,
     });
   }, [user]);
 
@@ -327,6 +347,7 @@ function Drawer({
   const canEdit = canEditAny || isSelf;
   const showActiveToggle = canEditAny;
   const showRoleSelect = canEditAny && !isSelf;
+  const showUnitSelect = canEditAny;
 
   async function save() {
     if (!token || !user) return;
@@ -339,6 +360,9 @@ function Drawer({
       }
       if (!showRoleSelect) {
         delete patch.role;
+      }
+      if (!showUnitSelect) {
+        delete patch.organizational_unit;
       }
       await usersApi.patchUser(token, user.id, patch);
       await onSaved();
@@ -366,6 +390,9 @@ function Drawer({
             <p className="mt-1 text-lg font-semibold text-zinc-50">
               {user.patente} {user.nome_guerra}
             </p>
+            <div className="mt-2">
+              <OrgUnitBadge variant={orgBadgeVariantForUnit(user.organizational_unit)} />
+            </div>
           </div>
           <button type="button" onClick={onClose} className="rounded-md p-2 text-zinc-400 hover:bg-zinc-900">
             ✕
@@ -391,6 +418,7 @@ function Drawer({
                 ["Tipo sanguíneo", user.blood_type ?? "—"],
                 ["Patente", user.patente],
                 ["Role sistema", user.role],
+                ["Pelotão", ORGANIZATIONAL_UNIT_LABELS[user.organizational_unit]],
                 ["Status", user.is_active ? "Ativo" : "Inativo"],
               ].map(([k, v]) => (
                 <div key={String(k)} className="rounded-lg border border-zinc-800/60 bg-black/30 px-3 py-2">
@@ -477,6 +505,27 @@ function Drawer({
                   </select>
                 </>
               )}
+              {showUnitSelect && (
+                <>
+                  <label className="block text-xs uppercase text-zinc-500">Pelotão</label>
+                  <select
+                    className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm"
+                    value={form.organizational_unit ?? ""}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        organizational_unit: e.target.value as OrganizationalUnit,
+                      }))
+                    }
+                  >
+                    {UNITS_SELECT.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {ORGANIZATIONAL_UNIT_LABELS[unit]}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              )}
               {showActiveToggle && (
                 <label className="flex items-center gap-2 text-sm text-zinc-300">
                   <input
@@ -535,6 +584,7 @@ export function EfetivoPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const canReorder = user ? isStaffEditor(user.role) : false;
+  const showUnitBadge = user ? canViewCompanyEfetivo(user.role) : false;
 
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!token) return;
@@ -576,6 +626,16 @@ export function EfetivoPage() {
 
   const { visualGroups, estagioPatentes } = useMemo(() => buildEfetivoLayout(users), [users]);
 
+  const companyUnitSections = useMemo(() => {
+    if (!showUnitBadge) return null;
+    return ORGANIZATIONAL_UNIT_ORDER.map((unit) => {
+      const unitUsers = users.filter((u) => u.organizational_unit === unit);
+      if (unitUsers.length === 0) return null;
+      const layout = buildEfetivoLayout(unitUsers);
+      return { unit, label: ORGANIZATIONAL_UNIT_SECTION_LABELS[unit], ...layout, count: unitUsers.length };
+    }).filter((s): s is NonNullable<typeof s> => s != null);
+  }, [users, showUnitBadge]);
+
   const openDrawer = (u: User) => {
     setSelected(u);
     setDrawerOpen(true);
@@ -584,11 +644,21 @@ export function EfetivoPage() {
   return (
     <OperationalLayout>
       <header className="mb-8">
-        <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Pelotão</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-50 sm:text-3xl">Efetivo</h1>
+        <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Companhia</p>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">Efetivo</h1>
+          {user && (
+            <OrgUnitBadge
+              variant={
+                showUnitBadge ? orgBadgeVariantForViewer(user) : orgBadgeVariantForUnit(user.organizational_unit)
+              }
+            />
+          )}
+        </div>
         <p className="mt-2 max-w-xl text-sm text-zinc-400">
-          Efetivo operacional por categoria hierárquica, com seção separada para policiais em estágio. Comandantes podem
-          arrastar para ajustar antiguidade dentro da mesma patente.
+          {showUnitBadge
+            ? "Efetivo da Companhia organizado por unidade organizacional, com antiguidade por patente."
+            : "Efetivo operacional por categoria hierárquica, com seção separada para policiais em estágio. Comandantes podem arrastar para ajustar antiguidade dentro da mesma patente."}
         </p>
       </header>
 
@@ -600,6 +670,43 @@ export function EfetivoPage() {
 
       {loading ? (
         <p className="text-sm text-zinc-500">Carregando efetivo…</p>
+      ) : showUnitBadge && companyUnitSections ? (
+        <div className="space-y-12">
+          {companyUnitSections.map((section) => (
+            <div key={section.unit} className="space-y-8">
+              <div className="border-y border-zinc-700/70 py-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <OrgUnitBadge variant={orgBadgeVariantForUnit(section.unit)} />
+                  <h2 className="text-sm font-semibold uppercase tracking-[0.25em] text-zinc-100">
+                    {section.label}
+                  </h2>
+                  <span className="text-xs text-zinc-500">{section.count} policiais</span>
+                </div>
+              </div>
+              {section.visualGroups.map((g) => (
+                <VisualGroupSection
+                  key={`${section.unit}-${g.group}`}
+                  label={g.label}
+                  patentes={g.patentes}
+                  canReorder={canReorder}
+                  showUnitBadge={false}
+                  onOpen={openDrawer}
+                  onReordered={onReordered}
+                />
+              ))}
+              {section.estagioPatentes.length > 0 && (
+                <EstagioSection
+                  patentes={section.estagioPatentes}
+                  canReorder={canReorder}
+                  showUnitBadge={false}
+                  onOpen={openDrawer}
+                  onReordered={onReordered}
+                />
+              )}
+            </div>
+          ))}
+          {users.length === 0 && <p className="text-sm text-zinc-500">Nenhum policial encontrado no efetivo.</p>}
+        </div>
       ) : (
         <div className="space-y-10">
           {visualGroups.map((g) => (
@@ -608,6 +715,7 @@ export function EfetivoPage() {
               label={g.label}
               patentes={g.patentes}
               canReorder={canReorder}
+              showUnitBadge={false}
               onOpen={openDrawer}
               onReordered={onReordered}
             />
@@ -616,11 +724,12 @@ export function EfetivoPage() {
             <EstagioSection
               patentes={estagioPatentes}
               canReorder={canReorder}
+              showUnitBadge={false}
               onOpen={openDrawer}
               onReordered={onReordered}
             />
           )}
-          {users.length === 0 && <p className="text-sm text-zinc-500">Nenhum policial aprovado.</p>}
+          {users.length === 0 && <p className="text-sm text-zinc-500">Nenhum policial encontrado no efetivo.</p>}
         </div>
       )}
 

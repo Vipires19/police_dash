@@ -44,7 +44,7 @@ class CompensationLogAction(str, enum.Enum):
 
 
 # Referência visual anual — não bloqueia criação.
-DS_ANNUAL_REFERENCE_QUOTA = 5
+DS_ANNUAL_REFERENCE_QUOTA = 6
 
 
 class CompensationEvent(Base):

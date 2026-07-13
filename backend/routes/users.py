@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from auth.dependencies import get_current_approved_user, require_approver, require_staff_editor
 from database.session import get_db
-from models.user import User, UserRole, UserStatus
+from models.user import OrganizationalUnit, User, UserRole, UserStatus
 from schemas.user import ApproveUserBody, EfetivoReorderBody, UserProfileUpdate, UserPublic
 from services import user_service as user_svc
 
@@ -26,21 +26,21 @@ def list_pending(
 
 @router.get("/efetivo", response_model=list[UserPublic])
 def list_efetivo(
-    _: User = Depends(get_current_approved_user),
+    current: User = Depends(get_current_approved_user),
     db: Session = Depends(get_db),
 ) -> list[UserPublic]:
-    users = user_svc.list_efetivo(db)
+    users = user_svc.list_efetivo(db, current)
     return [UserPublic.model_validate(u) for u in users]
 
 
 @router.put("/efetivo/reorder", status_code=status.HTTP_204_NO_CONTENT)
 def reorder_efetivo(
     body: EfetivoReorderBody,
-    _: User = Depends(require_staff_editor),
+    current: User = Depends(require_staff_editor),
     db: Session = Depends(get_db),
 ) -> Response:
     try:
-        user_svc.reorder_efetivo_patente(db, body.patente, body.ordered_user_ids)
+        user_svc.reorder_efetivo_patente(db, current, body.patente, body.ordered_user_ids)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -59,7 +59,12 @@ def approve_user(
     if target.status != UserStatus.PENDING:
         raise HTTPException(status_code=400, detail="Usuário não está pendente")
     role_model = UserRole(body.role.value) if body.role is not None else None
-    updated = user_svc.approve_or_reject(db, target, body.decision, role_model)
+    unit_model = (
+        OrganizationalUnit(body.organizational_unit.value)
+        if body.organizational_unit is not None
+        else None
+    )
+    updated = user_svc.approve_or_reject(db, target, body.decision, role_model, unit_model)
     return UserPublic.model_validate(updated)
 
 

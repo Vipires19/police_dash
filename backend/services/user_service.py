@@ -3,8 +3,11 @@ from sqlalchemy.orm import Session
 
 from auth.password import hash_password, verify_password
 from core.ranks import patente_sort_key
-from models.user import User, UserRole, UserStatus
+from models.user import OrganizationalUnit, User, UserRole, UserStatus
 from schemas.user import UserProfileUpdate, UserRegister
+
+STAFF_EDITOR_ROLES = {UserRole.ADMIN, UserRole.CMD_TATICO, UserRole.N90, UserRole.TAT_CMD}
+COMPANY_EFETIVO_VIEW_ROLES = {UserRole.ADMIN, UserRole.CMD_TATICO}
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -19,6 +22,7 @@ def _next_display_order(db: Session, patente: str, exclude_user_id: int | None =
     key = patente.strip().lower()
     stmt = select(func.coalesce(func.max(User.display_order), -1)).where(
         User.status == UserStatus.APPROVED,
+        User.is_active.is_(True),
         func.lower(func.trim(User.patente)) == key,
     )
     if exclude_user_id is not None:
@@ -34,6 +38,7 @@ def create_pending_user(db: Session, data: UserRegister) -> User:
         patente=data.patente.strip(),
         nome_guerra=data.nome_guerra.strip(),
         role=UserRole.ESTAGIO,
+        organizational_unit=OrganizationalUnit.FIRST_PLATOON,
         status=UserStatus.PENDING,
     )
     db.add(user)
@@ -57,26 +62,45 @@ def list_pending_users(db: Session) -> list[User]:
     )
 
 
-def list_efetivo(db: Session) -> list[User]:
-    users = list(
-        db.scalars(select(User).where(User.status == UserStatus.APPROVED)).all()
+def _efetivo_sort_key(u: User) -> tuple:
+    return (
+        patente_sort_key(u.patente)[0],
+        u.display_order,
+        u.nome_guerra.lower(),
     )
-    users.sort(
-        key=lambda u: (
-            patente_sort_key(u.patente)[0],
-            u.display_order,
-            u.nome_guerra.lower(),
-        )
+
+
+def list_efetivo(db: Session, viewer: User) -> list[User]:
+    """Lista efetivo ativo aprovado, escopado pela unidade do visualizador.
+
+    ADMIN e CMD_TATICO veem toda a Companhia. Demais roles veem apenas a própria unidade.
+    Usuários inativos são excluídos das listas operacionais (histórico permanece intacto).
+    """
+    stmt = select(User).where(
+        User.status == UserStatus.APPROVED,
+        User.is_active.is_(True),
     )
+    if viewer.role not in COMPANY_EFETIVO_VIEW_ROLES:
+        stmt = stmt.where(User.organizational_unit == viewer.organizational_unit)
+    users = list(db.scalars(stmt).all())
+    users.sort(key=_efetivo_sort_key)
     return users
 
 
-def approve_or_reject(db: Session, target: User, decision: str, role: UserRole | None) -> User:
+def approve_or_reject(
+    db: Session,
+    target: User,
+    decision: str,
+    role: UserRole | None,
+    organizational_unit: OrganizationalUnit | None = None,
+) -> User:
     if decision == "approve":
         target.display_order = _next_display_order(db, target.patente, exclude_user_id=target.id)
         target.status = UserStatus.APPROVED
         if role is not None:
             target.role = role
+        if organizational_unit is not None:
+            target.organizational_unit = organizational_unit
     else:
         target.status = UserStatus.REJECTED
     db.add(target)
@@ -91,7 +115,7 @@ def update_user_profile(
     target: User,
     data: UserProfileUpdate,
 ) -> User:
-    staff_editors = {UserRole.ADMIN, UserRole.N90, UserRole.TAT_CMD}
+    staff_editors = STAFF_EDITOR_ROLES
     is_staff = actor.role in staff_editors
     if not is_staff and target.id != actor.id:
         msg = "Sem permissão para editar este perfil"
@@ -100,7 +124,9 @@ def update_user_profile(
     if not is_staff:
         payload.pop("is_active", None)
         payload.pop("role", None)
+        payload.pop("organizational_unit", None)
     role_value = payload.pop("role", None)
+    unit_value = payload.pop("organizational_unit", None)
     if role_value is not None:
         if not is_staff:
             msg = "Sem permissão para alterar role"
@@ -109,8 +135,13 @@ def update_user_profile(
             msg = "Não é permitido alterar a própria role"
             raise PermissionError(msg)
         target.role = UserRole(role_value)
+    if unit_value is not None:
+        if not is_staff:
+            msg = "Sem permissão para alterar unidade organizacional"
+            raise PermissionError(msg)
+        target.organizational_unit = OrganizationalUnit(unit_value)
     if not payload:
-        if role_value is None:
+        if role_value is None and unit_value is None:
             return target
         db.add(target)
         db.commit()
@@ -126,11 +157,20 @@ def update_user_profile(
     return target
 
 
-def reorder_efetivo_patente(db: Session, patente: str, ordered_user_ids: list[int]) -> None:
+def reorder_efetivo_patente(
+    db: Session,
+    actor: User,
+    patente: str,
+    ordered_user_ids: list[int],
+) -> None:
     target_rank, _ = patente_sort_key(patente)
-    approved = list(
-        db.scalars(select(User).where(User.status == UserStatus.APPROVED)).all()
+    stmt = select(User).where(
+        User.status == UserStatus.APPROVED,
+        User.is_active.is_(True),
     )
+    if actor.role not in COMPANY_EFETIVO_VIEW_ROLES:
+        stmt = stmt.where(User.organizational_unit == actor.organizational_unit)
+    approved = list(db.scalars(stmt).all())
     expected = [u for u in approved if patente_sort_key(u.patente)[0] == target_rank]
     expected_ids = {u.id for u in expected}
     submitted_ids = set(ordered_user_ids)
@@ -153,6 +193,7 @@ def ensure_bootstrap_admin(db: Session, email: str, password: str, patente: str,
         patente=patente,
         nome_guerra=nome_guerra,
         role=UserRole.ADMIN,
+        organizational_unit=OrganizationalUnit.COMPANY_ADMIN,
         status=UserStatus.APPROVED,
         display_order=0,
         is_active=True,

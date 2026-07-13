@@ -17,7 +17,7 @@ from models.compensations import (
     UserCompensationStatus,
 )
 from models.leaves import LeaveRequest, LeaveStatus, LeaveType
-from models.user import User, UserRole
+from models.user import User, UserRole, UserStatus
 from schemas.compensations import (
     CompensationDashboardSummary,
     CompensationEventCreate,
@@ -67,8 +67,8 @@ def _append_log(
 def _ensure_relevant_occurrence_gate(approver: User, event: CompensationEvent) -> None:
     if event.event_type != CompensationType.RELEVANT_OCCURRENCE:
         return
-    if approver.role not in {UserRole.ADMIN, UserRole.N90, UserRole.TAT_CMD}:
-        raise ValueError("Ocorrência de grande relevância: aprovação restrita a N90/TAT_CMD (e ADMIN)")
+    if approver.role not in {UserRole.ADMIN, UserRole.CMD_TATICO, UserRole.N90, UserRole.TAT_CMD}:
+        raise ValueError("Ocorrência de grande relevância: aprovação restrita a N90/TAT_CMD/CMD_TATICO (e ADMIN)")
 
 
 def get_compensation_event(db: Session, event_id: int) -> CompensationEvent | None:
@@ -141,6 +141,8 @@ def create_compensation_event(db: Session, creator: User, body: CompensationEven
     found = list(db.scalars(select(User).where(User.id.in_(ids))).all())
     if len(found) != len(ids):
         raise ValueError("Participante inexistente")
+    if any(u.status != UserStatus.APPROVED or not u.is_active for u in found):
+        raise ValueError("Participante inválido ou inativo")
 
     ev = CompensationEvent(
         event_type=body.event_type,
@@ -301,6 +303,8 @@ def update_compensation_event(
         found = list(db.scalars(select(User).where(User.id.in_(ids))).all())
         if len(found) != len(ids):
             raise ValueError("Participante inexistente")
+        if any(u.status != UserStatus.APPROVED or not u.is_active for u in found):
+            raise ValueError("Participante inválido ou inativo")
         for p in list(ev.participants):
             db.delete(p)
         db.flush()

@@ -9,10 +9,18 @@ from database.base import Base
 
 class UserRole(str, enum.Enum):
     ADMIN = "ADMIN"
-    N90 = "N90"
+    CMD_TATICO = "CMD_TATICO"
     TAT_CMD = "TAT_CMD"
+    ADM = "ADM"
+    N90 = "N90"
     BRACAL = "BRACAL"
     ESTAGIO = "ESTAGIO"
+
+
+class OrganizationalUnit(str, enum.Enum):
+    FIRST_PLATOON = "FIRST_PLATOON"
+    SECOND_PLATOON = "SECOND_PLATOON"
+    COMPANY_ADMIN = "COMPANY_ADMIN"
 
 
 class UserStatus(str, enum.Enum):
@@ -40,6 +48,11 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         Enum(UserRole, name="userrole", create_type=False),
         nullable=False,
+    )
+    organizational_unit: Mapped[OrganizationalUnit] = mapped_column(
+        Enum(OrganizationalUnit, name="organizationalunit", create_type=False),
+        nullable=False,
+        default=OrganizationalUnit.FIRST_PLATOON,
     )
     status: Mapped[UserStatus] = mapped_column(
         Enum(UserStatus, name="userstatus", create_type=False),

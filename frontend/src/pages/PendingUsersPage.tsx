@@ -7,9 +7,15 @@ import {
   vacationStatusLabel,
   vacationTypeLabel,
 } from "@/components/vacations/statusStyles";
+import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
-import type { Role, User } from "@/types";
+import type { OrganizationalUnit, Role, User } from "@/types";
+import {
+  ALL_ROLES,
+  ORGANIZATIONAL_UNITS,
+  ORGANIZATIONAL_UNIT_LABELS,
+} from "@/types";
 import type { LeaveRequestPublic } from "@/types/leaves";
 import type { CompensationEventPublic } from "@/types/compensations";
 import { COMPENSATION_TYPE_LABELS } from "@/types/compensations";
@@ -21,12 +27,13 @@ import * as leavesApi from "@/services/leavesApi";
 import * as absencesApi from "@/services/absencesApi";
 import * as usersApi from "@/services/usersApi";
 
-const ROLES: Role[] = ["ADMIN", "N90", "TAT_CMD", "BRACAL", "ESTAGIO"];
+const ROLES: Role[] = ALL_ROLES;
+const UNITS: OrganizationalUnit[] = ORGANIZATIONAL_UNITS;
 
 type TabId = "cadastros" | "folgas" | "afastamentos" | "compensacoes";
 
 export function PendingUsersPage() {
-  const { token, refreshUser, isApprover } = useAuth();
+  const { token, refreshUser, isApprover, user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const tabOptions = useMemo(() => {
@@ -68,7 +75,10 @@ export function PendingUsersPage() {
     <OperationalLayout>
       <header className="mb-6">
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Comando</p>
-        <h2 className="text-2xl font-semibold text-zinc-50">Central de aprovações</h2>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h2 className="text-2xl font-semibold text-zinc-50">Central de aprovações</h2>
+          {user && <OrgUnitBadge variant={orgBadgeVariantForViewer(user)} />}
+        </div>
         <p className="mt-2 max-w-3xl text-sm text-zinc-400">
           Fila unificada: cadastros, folgas e eventos de compensação. Decisões permanecem manuais; o sistema apenas
           sinaliza revisões automáticas quando aplicável.
@@ -131,7 +141,12 @@ function CadastrosPendentesSection({
     void load();
   }, [token]);
 
-  async function handleDecision(u: User, decision: "approve" | "reject", role?: Role) {
+  async function handleDecision(
+    u: User,
+    decision: "approve" | "reject",
+    role?: Role,
+    organizationalUnit?: OrganizationalUnit,
+  ) {
     if (!token) return;
     setActionId(u.id);
     setError(null);
@@ -139,6 +154,7 @@ function CadastrosPendentesSection({
       await authApi.approveUserRequest(token, u.id, {
         decision,
         role: decision === "approve" ? role : undefined,
+        organizational_unit: decision === "approve" ? organizationalUnit : undefined,
       });
       await load();
       void refreshUser();
@@ -182,10 +198,23 @@ function CadastrosPendentesSection({
                         id={`role-${u.id}`}
                         defaultValue="BRACAL"
                         className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+                        aria-label="Role"
                       >
                         {ROLES.map((r) => (
                           <option key={r} value={r}>
                             {r}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        id={`unit-${u.id}`}
+                        defaultValue="FIRST_PLATOON"
+                        className="rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-100"
+                        aria-label="Pelotão"
+                      >
+                        {UNITS.map((unit) => (
+                          <option key={unit} value={unit}>
+                            {ORGANIZATIONAL_UNIT_LABELS[unit]}
                           </option>
                         ))}
                       </select>
@@ -194,8 +223,14 @@ function CadastrosPendentesSection({
                           type="button"
                           disabled={actionId === u.id}
                           onClick={() => {
-                            const sel = document.getElementById(`role-${u.id}`) as HTMLSelectElement;
-                            void handleDecision(u, "approve", sel.value as Role);
+                            const roleSel = document.getElementById(`role-${u.id}`) as HTMLSelectElement;
+                            const unitSel = document.getElementById(`unit-${u.id}`) as HTMLSelectElement;
+                            void handleDecision(
+                              u,
+                              "approve",
+                              roleSel.value as Role,
+                              unitSel.value as OrganizationalUnit,
+                            );
                           }}
                           className="rounded-md border border-zinc-600 px-3 py-1 text-xs text-zinc-100 hover:bg-zinc-900 disabled:opacity-50"
                         >

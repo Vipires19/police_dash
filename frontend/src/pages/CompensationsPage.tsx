@@ -4,6 +4,7 @@ import {
   compensationStatusBadgeClass,
   compensationStatusLabel,
 } from "@/components/compensations/statusStyles";
+import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
 import { useAuth } from "@/hooks/AuthContext";
 import type { User } from "@/types";
 import type {
@@ -159,7 +160,10 @@ export function CompensationsPage() {
       <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Operacional</p>
-          <h1 className="mt-2 text-2xl font-semibold text-zinc-50 sm:text-3xl">Compensações</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">Compensações</h1>
+            {user && <OrgUnitBadge variant={orgBadgeVariantForViewer(user)} />}
+          </div>
           <p className="mt-2 max-w-xl text-sm text-zinc-400">
             Cadastro de méritos que geram crédito de compensação. Folgas mensais e DS são solicitadas na aba Folgas.
           </p>
@@ -261,7 +265,7 @@ export function CompensationsPage() {
       {loading ? (
         <p className="text-sm text-zinc-500">Carregando…</p>
       ) : events.length === 0 ? (
-        <p className="text-sm text-zinc-500">Nenhum registro encontrado.</p>
+        <p className="text-sm text-zinc-500">Nenhuma compensação encontrada.</p>
       ) : (
         <ul className="space-y-3">
           {events.map((ev) => (

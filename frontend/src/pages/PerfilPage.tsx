@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
+import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
 import * as usersApi from "@/services/usersApi";
-import { isStaffEditor } from "@/types";
+import { ORGANIZATIONAL_UNIT_LABELS, isStaffEditor } from "@/types";
 
 const PATENTES_SELECT = [
   "1° TEN",
@@ -80,10 +81,18 @@ export function PerfilPage() {
     <OperationalLayout>
       <header className="mb-8">
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Conta</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-50 sm:text-3xl">Meu perfil</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">Meu perfil</h1>
+          {user && <OrgUnitBadge variant={orgBadgeVariantForViewer(user)} />}
+        </div>
         <p className="mt-2 text-sm text-zinc-400">
           Dados operacionais. Perfis de comando podem alternar status ativo quando aplicável.
         </p>
+        {user && (
+          <p className="mt-2 text-xs text-zinc-500">
+            Pelotão: {ORGANIZATIONAL_UNIT_LABELS[user.organizational_unit]} · Role: {user.role}
+          </p>
+        )}
       </header>
 
       {error && (

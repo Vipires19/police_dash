@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Share2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ScaleExportModal } from "@/components/service-scales/ScaleExportModal";
+import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
+import type { User } from "@/types";
+import { dashboardTitleForUnit } from "@/types";
 import type { VehicleLogFeedItem } from "@/types/vehicle";
 import type { LeaveCalendarResponse } from "@/types/leaves";
 import type { VacationCalendarResponse } from "@/types/vacation";
@@ -14,6 +17,7 @@ import * as leavesApi from "@/services/leavesApi";
 import * as vacationsApi from "@/services/vacationsApi";
 import * as scalesApi from "@/services/serviceScalesApi";
 import * as compensationsApi from "@/services/compensationsApi";
+import * as usersApi from "@/services/usersApi";
 import type { CompensationDashboardSummary } from "@/types/compensations";
 import { COMPENSATION_TYPE_LABELS } from "@/types/compensations";
 
@@ -48,6 +52,7 @@ export function DashboardPage() {
   const [exportScaleTitle, setExportScaleTitle] = useState("");
   const [compSummary, setCompSummary] = useState<CompensationDashboardSummary | null>(null);
   const [compErr, setCompErr] = useState<string | null>(null);
+  const [efetivoScope, setEfetivoScope] = useState<User[]>([]);
 
   const todayIso = useMemo(() => todayIsoLocal(), []);
 
@@ -56,17 +61,36 @@ export function DashboardPage() {
     return { y: d.getFullYear(), m: d.getMonth() + 1 };
   }, []);
 
+  const scopeUserIds = useMemo(() => new Set(efetivoScope.map((u) => u.id)), [efetivoScope]);
+  const scopeLabels = useMemo(
+    () => new Set(efetivoScope.map((u) => `${u.patente} ${u.nome_guerra}`.trim().toLowerCase())),
+    [efetivoScope],
+  );
+
+  const inOrgScopeByName = useCallback(
+    (patente: string, nomeGuerra: string) => {
+      if (scopeLabels.size === 0) return true;
+      return scopeLabels.has(`${patente} ${nomeGuerra}`.trim().toLowerCase());
+    },
+    [scopeLabels],
+  );
+
   const awayToday = useMemo(() => {
     const leaveDay = leaveCal?.days.find((d) => d.date === todayIso);
     const vacDay = vacationCal?.days.find((d) => d.date === todayIso);
     const folgas =
-      leaveDay?.entries.filter((e) => e.status === "APPROVED").map((e) => ({
-        id: e.id,
-        patente: e.patente,
-        nome_guerra: e.nome_guerra,
-        leave_type: e.leave_type,
-      })) ?? [];
-    const approvedVac = vacDay?.entries.filter((e) => e.status === "APPROVED") ?? [];
+      leaveDay?.entries
+        .filter((e) => e.status === "APPROVED" && inOrgScopeByName(e.patente, e.nome_guerra))
+        .map((e) => ({
+          id: e.id,
+          patente: e.patente,
+          nome_guerra: e.nome_guerra,
+          leave_type: e.leave_type,
+        })) ?? [];
+    const approvedVac =
+      vacDay?.entries.filter(
+        (e) => e.status === "APPROVED" && inOrgScopeByName(e.patente, e.nome_guerra),
+      ) ?? [];
     const ferias = approvedVac
       .filter((e) => e.vacation_type === "FERIAS")
       .map((e) => ({ id: e.id, patente: e.patente, nome_guerra: e.nome_guerra }));
@@ -88,7 +112,23 @@ export function DashboardPage() {
       outros,
       total: folgas.length + ferias.length + lp.length + outros.length,
     };
-  }, [leaveCal, vacationCal, todayIso]);
+  }, [leaveCal, vacationCal, todayIso, inOrgScopeByName]);
+
+  const scopedCompEvents = useMemo(() => {
+    if (!compSummary) return [];
+    if (scopeUserIds.size === 0) return compSummary.recent_events;
+    return compSummary.recent_events.filter((ev) =>
+      ev.participant_user_ids.some((id) => scopeUserIds.has(id)),
+    );
+  }, [compSummary, scopeUserIds]);
+
+  const scopedScaleEvents = useMemo(() => {
+    if (scopeLabels.size === 0) return scaleEvents;
+    return scaleEvents.filter((ev) => {
+      const actor = ev.actor_label.trim().toLowerCase();
+      return [...scopeLabels].some((label) => actor.includes(label) || label.includes(actor));
+    });
+  }, [scaleEvents, scopeLabels]);
 
   const loadScaleEvents = useCallback(async () => {
     if (!token) return;
@@ -168,16 +208,39 @@ export function DashboardPage() {
     void loadCompensations();
   }, [loadCompensations]);
 
+  const loadEfetivoScope = useCallback(async () => {
+    if (!token) return;
+    try {
+      const list = await usersApi.listEfetivo(token);
+      setEfetivoScope(list);
+    } catch {
+      setEfetivoScope([]);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    void loadEfetivoScope();
+  }, [loadEfetivoScope]);
+
   const todayLabel = useMemo(
     () => new Date(todayIso + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }),
     [todayIso],
   );
 
+  const dashboardTitle = user
+    ? dashboardTitleForUnit(user.organizational_unit)
+    : "Companhia Força Tática/ROCAM";
+
+  const scopeBadge = user ? orgBadgeVariantForViewer(user) : "CIA";
+
   return (
     <OperationalLayout>
       <section className="rounded-xl border border-zinc-800 bg-zinc-950/70 p-8 shadow-inner shadow-black/40">
         <p className="text-xs uppercase tracking-[0.4em] text-zinc-500">Painel inicial</p>
-        <h2 className="mt-3 text-3xl font-semibold text-zinc-50">1° Pel Força Tática/ROCAM</h2>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <h2 className="text-3xl font-semibold text-zinc-50">{dashboardTitle}</h2>
+          <OrgUnitBadge variant={scopeBadge} />
+        </div>
         {user && (
           <p className="mt-6 text-xl text-zinc-200">
             Bem-vindo {user.patente} {user.nome_guerra}
@@ -188,7 +251,12 @@ export function DashboardPage() {
             <p className="text-xs uppercase tracking-wide text-zinc-500">Folgas pendentes (suas)</p>
             {leaveErr && <p className="mt-2 text-xs text-red-400">{leaveErr}</p>}
             {!leaveErr && leaveCal && (
-              <p className="mt-2 text-2xl font-semibold text-zinc-100">{leaveCal.summary.my_pending_count}</p>
+              <>
+                <p className="mt-2 text-2xl font-semibold text-zinc-100">{leaveCal.summary.my_pending_count}</p>
+                {leaveCal.summary.my_pending_count === 0 && (
+                  <p className="mt-1 text-xs text-zinc-600">Nenhuma folga pendente.</p>
+                )}
+              </>
             )}
           </div>
           <article className="rounded-lg border border-zinc-800/80 bg-black/30 p-4">
@@ -332,23 +400,28 @@ export function DashboardPage() {
         )}
       </section>
 
-      {compSummary && compSummary.recent_events.length > 0 && (
-        <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6 shadow-inner shadow-black/30">
-          <div className="flex items-center justify-between gap-2">
-            <div>
+      <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6 shadow-inner shadow-black/30">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Compensações</p>
-              <h3 className="mt-2 text-lg font-semibold text-zinc-100">Atividade recente</h3>
+              <OrgUnitBadge variant={scopeBadge} />
             </div>
-            <button
-              type="button"
-              onClick={() => navigate("/compensacoes")}
-              className="text-xs text-sky-400 hover:underline"
-            >
-              Ver todas
-            </button>
+            <h3 className="mt-2 text-lg font-semibold text-zinc-100">Atividade recente</h3>
           </div>
+          <button
+            type="button"
+            onClick={() => navigate("/compensacoes")}
+            className="text-xs text-sky-400 hover:underline"
+          >
+            Ver todas
+          </button>
+        </div>
+        {scopedCompEvents.length === 0 ? (
+          <p className="mt-4 text-sm text-zinc-500">Nenhuma compensação encontrada.</p>
+        ) : (
           <ul className="mt-4 space-y-3">
-            {compSummary.recent_events.slice(0, 5).map((ev) => (
+            {scopedCompEvents.slice(0, 5).map((ev) => (
               <li key={ev.id} className="rounded-lg border border-zinc-800/60 bg-black/30 px-3 py-2 text-sm">
                 <span className="font-medium text-zinc-200">{COMPENSATION_TYPE_LABELS[ev.event_type]}</span>
                 <span className="ml-2 text-[10px] uppercase text-zinc-500">{ev.status}</span>
@@ -356,19 +429,22 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-        </section>
-      )}
+        )}
+      </section>
 
       <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6 shadow-inner shadow-black/30">
-        <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Escalas de Serviço</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Escalas de Serviço</p>
+          <OrgUnitBadge variant={scopeBadge} />
+        </div>
         <h3 className="mt-2 text-lg font-semibold text-zinc-100">Últimas alterações operacionais</h3>
         <p className="mt-1 text-xs text-zinc-600">Exibindo as {FEED_LIMIT} mais recentes</p>
         {scaleErr && <p className="mt-3 text-sm text-red-400">{scaleErr}</p>}
-        {!scaleErr && scaleEvents.length === 0 && (
-          <p className="mt-4 text-sm text-zinc-500">Nenhum evento de escala registrado.</p>
+        {!scaleErr && scopedScaleEvents.length === 0 && (
+          <p className="mt-4 text-sm text-zinc-500">Nenhuma escala publicada.</p>
         )}
         <ul className="mt-4 divide-y divide-zinc-800/80">
-          {scaleEvents.map((ev) => (
+          {scopedScaleEvents.map((ev) => (
             <li key={ev.id} className="flex items-start gap-2 py-3 first:pt-0">
               <button
                 type="button"
@@ -400,12 +476,15 @@ export function DashboardPage() {
       </section>
 
       <section className="mt-8 rounded-xl border border-zinc-800 bg-zinc-950/60 p-6 shadow-inner shadow-black/30">
-        <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Viaturas</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Viaturas</p>
+          <OrgUnitBadge variant="CIA" />
+        </div>
         <h3 className="mt-2 text-lg font-semibold text-zinc-100">Últimos registros operacionais</h3>
         <p className="mt-1 text-xs text-zinc-600">Exibindo os {FEED_LIMIT} mais recentes</p>
         {feedErr && <p className="mt-3 text-sm text-red-400">{feedErr}</p>}
         {!feedErr && feed.length === 0 && (
-          <p className="mt-4 text-sm text-zinc-500">Nenhum log registrado ainda.</p>
+          <p className="mt-4 text-sm text-zinc-500">Nenhum registro de viatura encontrado.</p>
         )}
         <ul className="mt-4 divide-y divide-zinc-800/80">
           {feed.map((log) => (

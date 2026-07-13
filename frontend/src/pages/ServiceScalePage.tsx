@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ScaleDayDrawer } from "@/components/service-scales/ScaleDayDrawer";
 import { ScaleMonthlyCalendar } from "@/components/service-scales/ScaleMonthlyCalendar";
+import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
@@ -168,9 +169,12 @@ export function ServiceScalePage() {
     <OperationalLayout>
       <header className="mb-6">
         <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-zinc-500">Operacional</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">Escala de Serviço</h1>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-semibold text-zinc-50">Escala de Serviço</h1>
+          {user && <OrgUnitBadge variant={orgBadgeVariantForViewer(user)} />}
+        </div>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
-          Calendário operacional do pelotão. Dias em verde: publicados; em âmbar: rascunho. Clique no dia para montar ou
+          Calendário operacional da Companhia. Dias em verde: publicados; em âmbar: rascunho. Clique no dia para montar ou
           consultar equipes.
         </p>
       </header>
@@ -208,7 +212,7 @@ export function ServiceScalePage() {
               </li>
             ))}
             {history && history.items.length === 0 && (
-              <li className="text-zinc-500">Nenhuma escala registrada.</li>
+              <li className="text-zinc-500">Nenhuma escala publicada.</li>
             )}
           </ul>
         </aside>

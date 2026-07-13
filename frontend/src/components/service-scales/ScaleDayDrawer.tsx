@@ -8,14 +8,53 @@ import {
   type ScaleModality,
   type ScaleTeamMemberInput,
   type ScaleTeamPublic,
+  type StaffRosterEntry,
 } from "@/types/serviceScale";
-import { absenceBadgeClass, scaleStatusBadgeClass, scaleStatusLabel } from "./statusStyles";
+import { absenceBadgeClass, absenceDisplayLabel, scaleStatusBadgeClass, scaleStatusLabel } from "./statusStyles";
 import {
   filterFtVehicles,
   filterRoCamMotos,
   gatherScaleUsage,
   isUserAvailable,
 } from "./scaleAvailability";
+
+function classifyAbsenceKey(kind: string, label?: string): "FOLGA" | "DS" | "FERIAS" | "LP" | "LICENCA" | "OUTROS" {
+  const display = absenceDisplayLabel(kind, label);
+  if (display === "DS") return "DS";
+  if (display === "FÉRIAS") return "FERIAS";
+  if (display === "LP") return "LP";
+  if (display === "LICENÇA") return "LICENCA";
+  if (display === "FOLGA") return "FOLGA";
+  return "OUTROS";
+}
+
+function buildRosterSummary(roster: StaffRosterEntry[], usage: ReturnType<typeof gatherScaleUsage>) {
+  let disponiveis = 0;
+  let emServico = 0;
+  let folga = 0;
+  let ds = 0;
+  let ferias = 0;
+  let lp = 0;
+  let licenca = 0;
+  let outros = 0;
+
+  for (const s of roster) {
+    if (s.absences.length === 0) {
+      disponiveis += 1;
+      if (!isUserAvailable(s.user_id, usage)) emServico += 1;
+      continue;
+    }
+    const keys = new Set(s.absences.map((a) => classifyAbsenceKey(a.kind, a.label)));
+    if (keys.has("DS")) ds += 1;
+    else if (keys.has("FOLGA")) folga += 1;
+    if (keys.has("FERIAS")) ferias += 1;
+    if (keys.has("LP")) lp += 1;
+    if (keys.has("LICENCA")) licenca += 1;
+    if (keys.has("OUTROS")) outros += 1;
+  }
+
+  return { disponiveis, emServico, folga, ds, ferias, lp, licenca, outros };
+}
 
 function formatDt(iso: string): string {
   return new Date(iso).toLocaleString("pt-BR", {
@@ -121,6 +160,23 @@ export function ScaleDayDrawer({
   );
 
   const roCamMotos = useMemo(() => detail?.vehicles_ro_cam ?? [], [detail?.vehicles_ro_cam]);
+
+  const { availableRoster, awayRoster } = useMemo(() => {
+    const roster = detail?.staff_roster ?? [];
+    // Já selecionados (ex.: edição) permanecem no grupo disponível para visualização.
+    const available = roster.filter(
+      (s) => s.absences.length === 0 || selectedMembers.includes(s.user_id),
+    );
+    const away = roster.filter(
+      (s) => s.absences.length > 0 && !selectedMembers.includes(s.user_id),
+    );
+    return { availableRoster: available, awayRoster: away };
+  }, [detail?.staff_roster, selectedMembers]);
+
+  const rosterSummary = useMemo(
+    () => buildRosterSummary(detail?.staff_roster ?? [], usage),
+    [detail?.staff_roster, usage],
+  );
 
   const missionName = missionPreset === "__custom__" ? missionCustom.trim() : missionPreset;
   const maxMembers = modality === "FT" ? 4 : 3;
@@ -392,34 +448,89 @@ export function ScaleDayDrawer({
                     <p className="mb-2 text-xs uppercase tracking-wider text-zinc-500">
                       Efetivo (máx. {maxMembers})
                     </p>
-                    <ul className="max-h-48 space-y-1 overflow-y-auto">
-                      {detail.staff_roster.map((s) => {
-                        const available = isUserAvailable(s.user_id, usage) || selectedMembers.includes(s.user_id);
+
+                    <div className="mb-3 rounded-lg border border-zinc-800/80 bg-black/30 px-3 py-2.5">
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px]">
+                        <span className="text-zinc-200">
+                          Disponíveis:{" "}
+                          <span className="font-semibold text-zinc-50">{rosterSummary.disponiveis}</span>
+                        </span>
+                        <span className="text-emerald-400/90">
+                          Em serviço: <span className="font-semibold">{rosterSummary.emServico}</span>
+                        </span>
+                        {rosterSummary.folga > 0 && (
+                          <span className="text-sky-400/90">
+                            Folga: <span className="font-semibold">{rosterSummary.folga}</span>
+                          </span>
+                        )}
+                        {rosterSummary.ds > 0 && (
+                          <span className="text-cyan-400/90">
+                            DS: <span className="font-semibold">{rosterSummary.ds}</span>
+                          </span>
+                        )}
+                        {rosterSummary.ferias > 0 && (
+                          <span className="text-violet-400/90">
+                            Férias: <span className="font-semibold">{rosterSummary.ferias}</span>
+                          </span>
+                        )}
+                        {rosterSummary.lp > 0 && (
+                          <span className="text-orange-400/90">
+                            LP: <span className="font-semibold">{rosterSummary.lp}</span>
+                          </span>
+                        )}
+                        {rosterSummary.licenca > 0 && (
+                          <span className="text-amber-400/90">
+                            Licença: <span className="font-semibold">{rosterSummary.licenca}</span>
+                          </span>
+                        )}
+                        {rosterSummary.outros > 0 && (
+                          <span className="text-zinc-400">
+                            Outros: <span className="font-semibold">{rosterSummary.outros}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
+                      Efetivo disponível
+                    </p>
+                    <ul className="max-h-40 space-y-1 overflow-y-auto">
+                      {availableRoster.length === 0 && (
+                        <li className="px-2 py-1 text-xs text-zinc-600">Nenhum policial disponível nesta data.</li>
+                      )}
+                      {availableRoster.map((s) => {
+                        const isAway = s.absences.length > 0;
+                        const freeForTeam =
+                          isUserAvailable(s.user_id, usage) || selectedMembers.includes(s.user_id);
                         const on = selectedMembers.includes(s.user_id);
+                        const canToggle = on || (!isAway && freeForTeam);
                         const motoOptions = filterRoCamMotos(roCamMotos, usage, roCamBikes[s.user_id]);
                         return (
-                          <li key={s.user_id} className={!available ? "opacity-40" : ""}>
+                          <li key={s.user_id} className={!freeForTeam && !on ? "opacity-40" : ""}>
                             <button
                               type="button"
-                              disabled={!available && !on}
-                              onClick={() => available && toggleMember(s.user_id)}
+                              disabled={!canToggle}
+                              onClick={() => canToggle && toggleMember(s.user_id)}
                               className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm ${on ? "bg-zinc-800 text-zinc-50" : "text-zinc-300 hover:bg-zinc-900"}`}
                             >
                               <span>
                                 {s.patente} {s.nome_guerra}
                               </span>
                               <span className="flex gap-1">
-                                {!available && !on && (
-                                  <span className="rounded px-1 text-[9px] uppercase text-zinc-500">Em outra equipe</span>
-                                )}
-                                {s.absences.map((a) => (
-                                  <span
-                                    key={a.kind}
-                                    className={`rounded px-1 text-[9px] font-semibold uppercase ring-1 ${absenceBadgeClass(a.kind)}`}
-                                  >
-                                    {a.label}
+                                {!freeForTeam && !on && (
+                                  <span className="rounded px-1 text-[9px] uppercase text-zinc-500">
+                                    Em outra equipe
                                   </span>
-                                ))}
+                                )}
+                                {isAway &&
+                                  s.absences.map((a) => (
+                                    <span
+                                      key={a.kind}
+                                      className={`rounded px-1 text-[9px] font-semibold uppercase ring-1 ${absenceBadgeClass(a.kind)}`}
+                                    >
+                                      {absenceDisplayLabel(a.kind, a.label)}
+                                    </span>
+                                  ))}
                               </span>
                             </button>
                             {modality === "ROCAM" && on && (
@@ -445,6 +556,54 @@ export function ScaleDayDrawer({
                         );
                       })}
                     </ul>
+
+                    <>
+                      <div
+                        className="my-3 flex items-center gap-3"
+                        role="separator"
+                        aria-label="Separador entre disponível e indisponíveis"
+                      >
+                        <div className="h-px flex-1 bg-zinc-800" />
+                        <span className="text-[9px] font-semibold uppercase tracking-[0.25em] text-zinc-600">
+                          Indisponíveis
+                        </span>
+                        <div className="h-px flex-1 bg-zinc-800" />
+                      </div>
+                      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-400/80">
+                        Indisponíveis
+                      </p>
+                      <p className="mb-2 text-[10px] text-zinc-600">
+                        Informativo — não podem ser selecionados para equipes nesta data.
+                      </p>
+                      <ul className="max-h-36 space-y-1 overflow-y-auto">
+                        {awayRoster.length === 0 ? (
+                          <li className="px-2 py-1 text-xs text-zinc-600">Nenhum policial indisponível nesta data.</li>
+                        ) : (
+                          awayRoster.map((s) => (
+                            <li
+                              key={s.user_id}
+                              className="flex items-center justify-between rounded px-2 py-1.5 text-sm text-zinc-500"
+                            >
+                              <span>
+                                {s.patente} {s.nome_guerra}
+                              </span>
+                              <span className="flex flex-wrap justify-end gap-1">
+                                {s.absences.map((a) => (
+                                  <span
+                                    key={a.kind}
+                                    className={`rounded px-1 text-[9px] font-semibold uppercase ring-1 ${absenceBadgeClass(
+                                      absenceDisplayLabel(a.kind, a.label) === "DS" ? "DS" : a.kind,
+                                    )}`}
+                                  >
+                                    {absenceDisplayLabel(a.kind, a.label)}
+                                  </span>
+                                ))}
+                              </span>
+                            </li>
+                          ))
+                        )}
+                      </ul>
+                    </>
                   </div>
                 )}
 

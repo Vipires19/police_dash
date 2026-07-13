@@ -28,6 +28,13 @@ from models.service_scale import (  # noqa: F401
 )
 from models.stolen_vehicle import StolenVehicle  # noqa: F401
 from models.criminal_watch import CriminalWatchNote, CriminalWatchVehicle, VehicleQruCode  # noqa: F401
+from models.dejem import (  # noqa: F401
+    DejemAllocation,
+    DejemInterest,
+    DejemMonth,
+    DejemParticipant,
+    DejemShift,
+)
 
 config = context.config
 if config.config_file_name is not None:
