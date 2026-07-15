@@ -122,6 +122,10 @@ DEJEM_ADMIN_ROLES = {
 # Reabrir distribuição: apenas comando superior.
 DEJEM_REOPEN_ROLES = {UserRole.ADMIN, UserRole.CMD_TATICO}
 
+# Escalas DEJEM: edição (ADMIN / CMD_TATICO / ADM) e visualização (+ TAT_CMD).
+DEJEM_SHIFT_EDITOR_ROLES = {UserRole.ADMIN, UserRole.CMD_TATICO, UserRole.ADM}
+DEJEM_SHIFT_VIEWER_ROLES = DEJEM_SHIFT_EDITOR_ROLES | {UserRole.TAT_CMD}
+
 
 def require_dejem_admin(current: User = Depends(get_current_approved_user)) -> User:
     if current.role not in DEJEM_ADMIN_ROLES:
@@ -137,6 +141,24 @@ def require_dejem_reopen(current: User = Depends(get_current_approved_user)) -> 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Somente ADMIN ou CMD_TATICO podem reabrir a distribuição DEJEM",
+        )
+    return current
+
+
+def require_dejem_shift_viewer(current: User = Depends(get_current_approved_user)) -> User:
+    if current.role not in DEJEM_SHIFT_VIEWER_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem permissão para visualizar escalas DEJEM",
+        )
+    return current
+
+
+def require_dejem_shift_editor(current: User = Depends(get_current_approved_user)) -> User:
+    if current.role not in DEJEM_SHIFT_EDITOR_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem permissão para criar ou editar escalas DEJEM",
         )
     return current
 

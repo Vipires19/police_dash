@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field, model_validator
 
 from models.service_scale import ScaleLogAction, ScaleModality, ScaleStatus
+from schemas.dejem import DejemMapBlock
 
 FT_MISSION_PRESETS = ("Tático Comando", "Supervisor Tático", "Força Tática")
 ROCAM_MISSION_PRESETS = ("ROCAM 1", "ROCAM 2", "ROCAM 3")
@@ -49,12 +50,14 @@ class ServiceScaleCreate(BaseModel):
     scale_date: date
     title: str = Field(..., min_length=1, max_length=256)
     description: str | None = Field(default=None, max_length=4000)
+    fardamento: str | None = Field(default=None, max_length=256)
     status: ScaleStatus = ScaleStatus.DRAFT
 
 
 class ServiceScaleUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=256)
     description: str | None = Field(default=None, max_length=4000)
+    fardamento: str | None = Field(default=None, max_length=256)
 
 
 class ScaleTeamCreate(BaseModel):
@@ -116,15 +119,33 @@ class ServiceScalePublic(BaseModel):
     scale_date: date
     title: str
     description: str | None
+    fardamento: str | None = None
     status: ScaleStatus
     created_by_id: int
     created_by_label: str | None = None
     published_at: datetime | None
+    current_version_number: int | None = None
     created_at: datetime
     updated_at: datetime
     teams: list[ScaleTeamPublic]
 
     model_config = {"from_attributes": False}
+
+
+class ScaleVersionPublic(BaseModel):
+    id: int
+    service_scale_id: int
+    version_number: int
+    published_at: datetime
+    published_by_id: int
+    published_by_label: str | None = None
+    change_summary: str | None = None
+    dejem_integrated_count: int = 0
+    created_at: datetime
+
+
+class ScaleVersionDetail(ScaleVersionPublic):
+    export_text: str
 
 
 class ScaleCalendarDay(BaseModel):
@@ -167,6 +188,7 @@ class ScaleDayDetailResponse(BaseModel):
     staff_roster: list[StaffRosterEntry]
     vehicles_ft: list[ScaleVehicleOption]
     vehicles_ro_cam: list[ScaleVehicleOption]
+    dejem_blocks: list[DejemMapBlock] = Field(default_factory=list)
 
 
 class ScaleLogFeedItem(BaseModel):
@@ -201,3 +223,26 @@ class ScaleHistoryResponse(BaseModel):
 
 class ScaleExportResponse(BaseModel):
     text: str
+
+
+class ScalePublishPreviewRequest(BaseModel):
+    description: str | None = Field(default=None, max_length=4000)
+
+
+class ScalePublishPreviewResponse(BaseModel):
+    text: str
+    fardamento: str | None = None
+    description: str | None = None
+    team_count: int = 0
+    dejem_count: int = 0
+
+
+class ScaleMessageTemplatePublic(BaseModel):
+    id: int
+    slug: str
+    name: str
+    body_text: str
+    is_default: bool
+    is_active: bool
+
+    model_config = {"from_attributes": True}

@@ -19,6 +19,10 @@ import { CriminalWatchVehiclesPage } from "@/pages/CriminalWatchVehiclesPage";
 import { DejemPage } from "@/pages/DejemPage";
 import { DejemAdminPage } from "@/pages/DejemAdminPage";
 import { DejemMyPage } from "@/pages/DejemMyPage";
+import { DejemShiftsPage } from "@/pages/DejemShiftsPage";
+import { DejemTemplatesPage } from "@/pages/DejemTemplatesPage";
+import { OperationalPublicationPage } from "@/pages/OperationalPublicationPage";
+import { OperationalPublicationHistoryPage } from "@/pages/OperationalPublicationHistoryPage";
 
 function RootRedirect() {
   const { token, user, loading } = useAuth();
@@ -141,6 +145,22 @@ const router = createBrowserRouter([
     ),
   },
   {
+    path: "/publicacao-operacional",
+    element: (
+      <ProtectedRoute>
+        <OperationalPublicationPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/publicacao-operacional/historico",
+    element: (
+      <ProtectedRoute>
+        <OperationalPublicationHistoryPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
     path: "/dejem",
     element: (
       <ProtectedRoute>
@@ -161,6 +181,22 @@ const router = createBrowserRouter([
     element: (
       <ProtectedRoute>
         <DejemMyPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/dejem/shifts",
+    element: (
+      <ProtectedRoute>
+        <DejemShiftsPage />
+      </ProtectedRoute>
+    ),
+  },
+  {
+    path: "/dejem/templates",
+    element: (
+      <ProtectedRoute>
+        <DejemTemplatesPage />
       </ProtectedRoute>
     ),
   },

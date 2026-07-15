@@ -16,6 +16,7 @@ from routes import stolen_vehicles as stolen_vehicles_routes
 from routes import criminal_watch as criminal_watch_routes
 from routes import vehicle_qru_codes as vehicle_qru_codes_routes
 from routes import dejem as dejem_routes
+from routes import operational_publication as operational_publication_routes
 from services.user_service import ensure_bootstrap_admin
 
 
@@ -59,6 +60,7 @@ app.include_router(stolen_vehicles_routes.router)
 app.include_router(criminal_watch_routes.router)
 app.include_router(vehicle_qru_codes_routes.router)
 app.include_router(dejem_routes.router)
+app.include_router(operational_publication_routes.router)
 
 
 @app.get("/health")

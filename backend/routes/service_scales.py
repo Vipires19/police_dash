@@ -3,12 +3,20 @@ from datetime import date, datetime
 #from sqlalchemy.sql.functions import current_user
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
 from auth.dependencies import get_current_approved_user, require_scale_editor
 from database.session import get_db
-from models.service_scale import ScaleLog, ScaleStatus, ScaleTeam, ScaleTeamMember, ServiceScale
+from models.service_scale import (
+    ScaleLog,
+    ScaleMessageTemplate,
+    ScaleStatus,
+    ScaleTeam,
+    ScaleTeamMember,
+    ServiceScale,
+)
 from models.user import User, UserRole
 from models.vehicle import Vehicle
 from schemas.service_scale import (
@@ -20,19 +28,26 @@ from schemas.service_scale import (
     ScaleHistoryEntry,
     ScaleHistoryResponse,
     ScaleLogFeedItem,
+    ScaleMessageTemplatePublic,
+    ScalePublishPreviewRequest,
+    ScalePublishPreviewResponse,
     ScaleTeamCreate,
     ScaleTeamMembersUpdate,
     ScaleTeamMemberPublic,
     ScaleTeamPublic,
     ScaleTeamUpdate,
     ScaleVehicleOption,
+    ScaleVersionDetail,
+    ScaleVersionPublic,
     ServiceScaleCreate,
     ServiceScalePublic,
     ServiceScaleUpdate,
     StaffRosterEntry,
 )
 from services import scale_export_service as export_svc
+from services import scale_publish_pipeline as publish_pipe
 from services import service_scale_service as scale_svc
+from services.scale_publish_pipeline import PublishPipelineError
 
 router = APIRouter(prefix="/service-scales", tags=["service-scales"])
 _BR = ZoneInfo("America/Sao_Paulo")
@@ -83,15 +98,18 @@ def _team_public(t: ScaleTeam) -> ScaleTeamPublic:
 
 def _scale_public(row: ServiceScale) -> ServiceScalePublic:
     cb = row.created_by
+    cv = row.current_version
     return ServiceScalePublic(
         id=row.id,
         scale_date=row.scale_date,
         title=row.title,
         description=row.description,
+        fardamento=row.fardamento,
         status=row.status,
         created_by_id=row.created_by_id,
         created_by_label=f"{cb.patente} {cb.nome_guerra}" if cb else None,
         published_at=row.published_at,
+        current_version_number=cv.version_number if cv else None,
         created_at=row.created_at,
         updated_at=row.updated_at,
         teams=[_team_public(t) for t in row.teams],
@@ -191,6 +209,20 @@ def mission_presets(_: User = Depends(get_current_approved_user)) -> dict:
     return {"ft": list(FT_MISSION_PRESETS), "ro_cam": list(ROCAM_MISSION_PRESETS)}
 
 
+@router.get("/presets/message-templates", response_model=list[ScaleMessageTemplatePublic])
+def list_message_templates(
+    _: User = Depends(get_current_approved_user),
+    db: Session = Depends(get_db),
+) -> list[ScaleMessageTemplate]:
+    return list(
+        db.scalars(
+            select(ScaleMessageTemplate)
+            .where(ScaleMessageTemplate.is_active.is_(True))
+            .order_by(ScaleMessageTemplate.is_default.desc(), ScaleMessageTemplate.id.asc())
+        ).all()
+    )
+
+
 @router.get("/{scale_date}", response_model=ScaleDayDetailResponse)
 def get_by_date(
     scale_date: date,
@@ -206,6 +238,7 @@ def get_by_date(
         staff_roster=[StaffRosterEntry.model_validate(r) for r in detail["staff_roster"]],
         vehicles_ft=[_vehicle_option(v) for v in detail["vehicles_ft"]],
         vehicles_ro_cam=[_vehicle_option(v) for v in detail["vehicles_ro_cam"]],
+        dejem_blocks=detail.get("dejem_blocks") or [],
     )
 
 
@@ -268,6 +301,33 @@ def export_scale(
     return ScaleExportResponse(text=text)
 
 
+@router.post("/{scale_id}/publish/preview", response_model=ScalePublishPreviewResponse)
+def preview_publish_scale(
+    scale_id: int,
+    body: ScalePublishPreviewRequest | None = None,
+    current: User = Depends(require_scale_editor),
+    db: Session = Depends(get_db),
+) -> ScalePublishPreviewResponse:
+    try:
+        result = publish_pipe.preview_publish_message(
+            db,
+            scale_id,
+            current,
+            description_override=body.description if body else None,
+        )
+    except PublishPipelineError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return ScalePublishPreviewResponse(
+        text=result["text"],
+        fardamento=result.get("fardamento"),
+        description=result.get("description"),
+        team_count=int(result.get("team_count") or 0),
+        dejem_count=int(result.get("dejem_count") or 0),
+    )
+
+
 @router.post("/{scale_id}/publish", response_model=ServiceScalePublic)
 def publish_scale(
     scale_id: int,
@@ -276,6 +336,85 @@ def publish_scale(
 ) -> ServiceScalePublic:
     try:
         row = scale_svc.publish_scale(db, scale_id, current)
+    except PublishPipelineError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return _scale_public(row)
+
+
+@router.get("/{scale_id}/versions", response_model=list[ScaleVersionPublic])
+def list_scale_versions(
+    scale_id: int,
+    _: User = Depends(get_current_approved_user),
+    db: Session = Depends(get_db),
+) -> list[ScaleVersionPublic]:
+    rows = publish_pipe.list_versions(db, scale_id)
+    out: list[ScaleVersionPublic] = []
+    for v in rows:
+        pb = v.published_by
+        out.append(
+            ScaleVersionPublic(
+                id=v.id,
+                service_scale_id=v.service_scale_id,
+                version_number=v.version_number,
+                published_at=v.published_at,
+                published_by_id=v.published_by_id,
+                published_by_label=f"{pb.patente} {pb.nome_guerra}" if pb else None,
+                change_summary=v.change_summary,
+                dejem_integrated_count=v.dejem_integrated_count,
+                created_at=v.created_at,
+            )
+        )
+    return out
+
+
+@router.get("/{scale_id}/versions/{version_number}", response_model=ScaleVersionDetail)
+def get_scale_version(
+    scale_id: int,
+    version_number: int,
+    _: User = Depends(get_current_approved_user),
+    db: Session = Depends(get_db),
+) -> ScaleVersionDetail:
+    v = publish_pipe.get_version(db, scale_id, version_number)
+    if not v:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Versão não encontrada")
+    pb = v.published_by
+    return ScaleVersionDetail(
+        id=v.id,
+        service_scale_id=v.service_scale_id,
+        version_number=v.version_number,
+        published_at=v.published_at,
+        published_by_id=v.published_by_id,
+        published_by_label=f"{pb.patente} {pb.nome_guerra}" if pb else None,
+        change_summary=v.change_summary,
+        dejem_integrated_count=v.dejem_integrated_count,
+        created_at=v.created_at,
+        export_text=v.export_text,
+    )
+
+
+@router.get("/{scale_id}/versions/{version_number}/export", response_model=ScaleExportResponse)
+def export_scale_version(
+    scale_id: int,
+    version_number: int,
+    _: User = Depends(get_current_approved_user),
+    db: Session = Depends(get_db),
+) -> ScaleExportResponse:
+    v = publish_pipe.get_version(db, scale_id, version_number)
+    if not v:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Versão não encontrada")
+    return ScaleExportResponse(text=v.export_text)
+
+
+@router.post("/{scale_id}/unpublish", response_model=ServiceScalePublic)
+def unpublish_scale(
+    scale_id: int,
+    current: User = Depends(require_scale_editor),
+    db: Session = Depends(get_db),
+) -> ServiceScalePublic:
+    try:
+        row = scale_svc.unpublish_scale(db, scale_id, current)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return _scale_public(row)

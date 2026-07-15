@@ -98,6 +98,22 @@ export function ServiceScalePage() {
     }
   };
 
+  const handleUpdateScale = async (
+    scaleId: number,
+    body: { fardamento?: string | null; description?: string | null },
+  ) => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      await scalesApi.updateScale(token, scaleId, body);
+      await refreshAll();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.detail : "Erro ao atualizar escala");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handlePublish = async (scaleId: number) => {
     if (!token) return;
     setBusy(true);
@@ -106,6 +122,19 @@ export function ServiceScalePage() {
       await refreshAll();
     } catch (e) {
       setErr(e instanceof ApiError ? e.detail : "Erro ao publicar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnpublish = async (scaleId: number) => {
+    if (!token) return;
+    setBusy(true);
+    try {
+      await scalesApi.unpublishScale(token, scaleId);
+      await refreshAll();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.detail : "Erro ao despublicar");
     } finally {
       setBusy(false);
     }
@@ -243,7 +272,9 @@ export function ServiceScalePage() {
             busy={busy}
             onClose={() => setSelected(null)}
             onCreateScale={handleCreateScale}
+            onUpdateScale={handleUpdateScale}
             onPublish={handlePublish}
+            onUnpublish={handleUnpublish}
             onAddTeam={handleAddTeam}
             onEditTeam={handleEditTeam}
             onRemoveTeam={handleRemoveTeam}

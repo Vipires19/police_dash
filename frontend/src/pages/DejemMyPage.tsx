@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { DejemMyEnrollmentDrawer } from "@/components/dejem/DejemMyEnrollmentDrawer";
+import { DejemShiftMonthlyCalendar } from "@/components/dejem/DejemShiftMonthlyCalendar";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
@@ -9,6 +11,8 @@ import {
   type DejemAllocationPublic,
   type DejemInterestPublic,
   type DejemMonthPublic,
+  type DejemMyDayDetail,
+  type DejemShiftCalendarResponse,
 } from "@/types/dejem";
 
 export function DejemMyPage() {
@@ -25,6 +29,10 @@ export function DejemMyPage() {
   const [wantParticipate, setWantParticipate] = useState(true);
   const [desiredSlots, setDesiredSlots] = useState(1);
 
+  const [cal, setCal] = useState<DejemShiftCalendarResponse | null>(null);
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [dayDetail, setDayDetail] = useState<DejemMyDayDetail | null>(null);
+
   const selected = useMemo(
     () => months.find((m) => m.id === selectedId) ?? null,
     [months, selectedId],
@@ -35,6 +43,8 @@ export function DejemMyPage() {
     selected?.status === "DISTRIBUTED" ||
     selected?.status === "OPEN_SHIFTS" ||
     selected?.status === "FINISHED";
+  const canEnroll =
+    selected?.status === "DISTRIBUTED" || selected?.status === "OPEN_SHIFTS";
 
   const loadMonths = useCallback(async () => {
     if (!token) return;
@@ -45,8 +55,10 @@ export function DejemMyPage() {
       setMonths(list);
       setSelectedId((prev) => {
         if (prev && list.some((m) => m.id === prev)) return prev;
+        const openShifts = list.find((m) => m.status === "OPEN_SHIFTS");
         const open = list.find((m) => m.status === "OPEN_INTEREST");
-        return open?.id ?? list[0]?.id ?? null;
+        const dist = list.find((m) => m.status === "DISTRIBUTED");
+        return openShifts?.id ?? open?.id ?? dist?.id ?? list[0]?.id ?? null;
       });
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : "Erro ao carregar meses DEJEM");
@@ -55,36 +67,55 @@ export function DejemMyPage() {
     }
   }, [token]);
 
-  const loadInterest = useCallback(async (monthId: number) => {
-    if (!token) return;
-    try {
-      const row = await dejemApi.getMyDejemInterest(token, monthId);
-      setInterest(row);
-      if (row) {
-        setWantParticipate(row.interested);
-        setDesiredSlots(row.interested ? Math.max(1, row.desired_slots) : 1);
-      } else {
-        setWantParticipate(true);
-        setDesiredSlots(1);
+  const loadInterest = useCallback(
+    async (monthId: number) => {
+      if (!token) return;
+      try {
+        const row = await dejemApi.getMyDejemInterest(token, monthId);
+        setInterest(row);
+        if (row) {
+          setWantParticipate(row.interested);
+          setDesiredSlots(row.interested ? Math.max(1, row.desired_slots) : 1);
+        } else {
+          setWantParticipate(true);
+          setDesiredSlots(1);
+        }
+      } catch (e) {
+        setError(e instanceof ApiError ? e.detail : "Erro ao carregar manifestação");
       }
-    } catch (e) {
-      setError(e instanceof ApiError ? e.detail : "Erro ao carregar manifestação");
-    }
-  }, [token]);
+    },
+    [token],
+  );
 
-  const loadAllocation = useCallback(async (monthId: number, distributed: boolean) => {
-    if (!token) return;
-    if (!distributed) {
-      setAllocation(null);
+  const loadAllocation = useCallback(
+    async (monthId: number, distributed: boolean) => {
+      if (!token) return;
+      if (!distributed) {
+        setAllocation(null);
+        return;
+      }
+      try {
+        const row = await dejemApi.getMyDejemAllocation(token, monthId);
+        setAllocation(row);
+      } catch (e) {
+        setError(e instanceof ApiError ? e.detail : "Erro ao carregar saldo");
+      }
+    },
+    [token],
+  );
+
+  const loadCalendar = useCallback(async () => {
+    if (!token || !selected || !canEnroll) {
+      setCal(null);
       return;
     }
     try {
-      const row = await dejemApi.getMyDejemAllocation(token, monthId);
-      setAllocation(row);
+      const res = await dejemApi.getMyDejemCalendar(token, selected.year, selected.month);
+      setCal(res);
     } catch (e) {
-      setError(e instanceof ApiError ? e.detail : "Erro ao carregar saldo");
+      setError(e instanceof ApiError ? e.detail : "Erro ao carregar calendário");
     }
-  }, [token]);
+  }, [token, selected, canEnroll]);
 
   useEffect(() => {
     void loadMonths();
@@ -94,16 +125,56 @@ export function DejemMyPage() {
     if (selectedId == null || !selected) {
       setInterest(null);
       setAllocation(null);
+      setSelectedDay(null);
+      setDayDetail(null);
       return;
     }
     void loadInterest(selectedId);
-    void loadAllocation(
-      selectedId,
-      selected.status === "DISTRIBUTED" ||
-        selected.status === "OPEN_SHIFTS" ||
-        selected.status === "FINISHED",
-    );
-  }, [selectedId, selected, loadInterest, loadAllocation]);
+    void loadAllocation(selectedId, isDistributed);
+    setSelectedDay(null);
+    setDayDetail(null);
+  }, [selectedId, selected, isDistributed, loadInterest, loadAllocation]);
+
+  useEffect(() => {
+    void loadCalendar();
+  }, [loadCalendar]);
+
+  useEffect(() => {
+    if (!token || !selectedDay || !selected || !canEnroll) {
+      setDayDetail(null);
+      return;
+    }
+    const [, , d] = selectedDay.split("-").map(Number);
+    void (async () => {
+      try {
+        const detail = await dejemApi.getMyDejemDay(
+          token,
+          selected.year,
+          selected.month,
+          d,
+        );
+        setDayDetail(detail);
+      } catch (e) {
+        setError(e instanceof ApiError ? e.detail : "Erro ao carregar o dia");
+      }
+    })();
+  }, [token, selectedDay, selected, canEnroll]);
+
+  const refreshAfterEnrollment = async () => {
+    if (!token || !selected) return;
+    await loadAllocation(selected.id, true);
+    await loadCalendar();
+    if (selectedDay) {
+      const [, , d] = selectedDay.split("-").map(Number);
+      const detail = await dejemApi.getMyDejemDay(
+        token,
+        selected.year,
+        selected.month,
+        d,
+      );
+      setDayDetail(detail);
+    }
+  };
 
   const onSave = async () => {
     if (!token || !selected) return;
@@ -127,7 +198,7 @@ export function DejemMyPage() {
     }
   };
 
-  const onCancel = async () => {
+  const onCancelInterest = async () => {
     if (!token || !selected || !interest) return;
     if (!window.confirm("Remover sua manifestação deste mês?")) return;
     setBusy(true);
@@ -146,13 +217,60 @@ export function DejemMyPage() {
     }
   };
 
+  const onEnroll = async (shiftId: number) => {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await dejemApi.enrollDejemShift(token, shiftId);
+      setMsg("Inscrição realizada.");
+      if (res.remaining_slots != null && allocation) {
+        setAllocation({
+          ...allocation,
+          used_slots: allocation.allocated_slots - res.remaining_slots,
+          remaining_slots: res.remaining_slots,
+        });
+      }
+      await refreshAfterEnrollment();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Erro ao participar");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onCancelEnrollment = async (shiftId: number) => {
+    if (!token) return;
+    if (!window.confirm("Cancelar sua inscrição nesta escala?")) return;
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const res = await dejemApi.cancelDejemEnrollment(token, shiftId);
+      setMsg("Inscrição cancelada. Saldo devolvido.");
+      if (res.remaining_slots != null && allocation) {
+        setAllocation({
+          ...allocation,
+          used_slots: allocation.allocated_slots - res.remaining_slots,
+          remaining_slots: res.remaining_slots,
+        });
+      }
+      await refreshAfterEnrollment();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Erro ao cancelar inscrição");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <OperationalLayout>
       <header className="mb-8">
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">DEJEM</p>
         <h1 className="mt-2 text-2xl font-semibold text-zinc-50">Minha DEJEM</h1>
         <p className="mt-2 max-w-xl text-sm text-zinc-400">
-          Manifestação de interesse e saldo individual de vagas do mês.
+          Manifestação de interesse, saldo e inscrição nas escalas abertas.
         </p>
       </header>
 
@@ -189,170 +307,187 @@ export function DejemMyPage() {
           </label>
 
           {selected && (
-            <section className="max-w-xl rounded-xl border border-zinc-800 bg-zinc-950/70 px-6 py-6">
-              <h2 className="text-lg font-semibold tracking-wide text-zinc-50">
-                DEJEM — {dejemMonthLabel(selected.year, selected.month)}
-              </h2>
+            <>
+              <section className="max-w-xl rounded-xl border border-zinc-800 bg-zinc-950/70 px-6 py-6">
+                <h2 className="text-lg font-semibold tracking-wide text-zinc-50">
+                  DEJEM — {dejemMonthLabel(selected.year, selected.month)}
+                </h2>
 
-              <div className="mt-5 space-y-3 border-y border-zinc-800 py-5 text-sm">
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-zinc-400">Total de vagas da Companhia</span>
-                  <span className="font-medium tabular-nums text-zinc-100">
-                    {selected.total_available_slots}
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-zinc-400">Limite mensal por policial</span>
-                  <span className="font-medium tabular-nums text-zinc-100">
-                    {selected.monthly_limit_per_officer}
-                  </span>
-                </div>
-                <div className="flex items-baseline justify-between gap-4">
-                  <span className="text-zinc-400">Status</span>
-                  <span className="font-medium text-zinc-100">
-                    {DEJEM_MONTH_STATUS_LABELS[selected.status]}
-                  </span>
-                </div>
-              </div>
-
-              {isDistributed && (
-                <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-4">
-                  <p className="text-xs uppercase tracking-wider text-zinc-500">Saldo</p>
-                  {allocation ? (
-                    <dl className="mt-3 space-y-2 text-sm">
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-400">Saldo inicial</dt>
-                        <dd className="tabular-nums font-medium text-zinc-100">
-                          {allocation.allocated_slots}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4">
-                        <dt className="text-zinc-400">Utilizadas</dt>
-                        <dd className="tabular-nums font-medium text-zinc-100">
-                          {allocation.used_slots}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-4 border-t border-zinc-800 pt-2">
-                        <dt className="text-zinc-400">Disponíveis</dt>
-                        <dd className="tabular-nums font-medium text-zinc-50">
-                          {allocation.remaining_slots}
-                        </dd>
-                      </div>
-                    </dl>
-                  ) : (
-                    <p className="mt-2 text-sm text-zinc-500">
-                      Você não recebeu vagas neste mês.
-                    </p>
-                  )}
-                  <p className="mt-3 text-xs text-zinc-500">
-                    A inscrição nas escalas DEJEM estará disponível em breve.
-                  </p>
-                </div>
-              )}
-
-              {isOpen ? (
-                <div className="mt-6 space-y-5">
-                  <div>
-                    <p className="mb-3 text-sm font-medium text-zinc-200">Manifestação de Interesse</p>
-                    <div className="space-y-2">
-                      <label className="flex cursor-pointer items-center gap-3 text-sm text-zinc-200">
-                        <input
-                          type="radio"
-                          name="want"
-                          checked={wantParticipate}
-                          onChange={() => setWantParticipate(true)}
-                          className="accent-zinc-200"
-                        />
-                        Quero participar
-                      </label>
-                      <label className="flex cursor-pointer items-center gap-3 text-sm text-zinc-200">
-                        <input
-                          type="radio"
-                          name="want"
-                          checked={!wantParticipate}
-                          onChange={() => setWantParticipate(false)}
-                          className="accent-zinc-200"
-                        />
-                        Não desejo participar
-                      </label>
-                    </div>
+                <div className="mt-5 space-y-3 border-y border-zinc-800 py-5 text-sm">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="text-zinc-400">Status</span>
+                    <span className="font-medium text-zinc-100">
+                      {DEJEM_MONTH_STATUS_LABELS[selected.status]}
+                    </span>
                   </div>
+                </div>
 
-                  {wantParticipate && (
-                    <label className="block text-sm">
-                      <span className="mb-1.5 block text-zinc-400">Quantidade desejada</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={selected.monthly_limit_per_officer}
-                        value={desiredSlots}
-                        onChange={(e) => setDesiredSlots(Number(e.target.value))}
-                        className="w-28 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 tabular-nums text-zinc-100"
-                      />
-                      <span className="mt-1 block text-xs text-zinc-500">
-                        Entre 1 e {selected.monthly_limit_per_officer}
-                      </span>
-                    </label>
-                  )}
+                {isDistributed && (
+                  <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-4">
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">Saldo</p>
+                    {allocation ? (
+                      <dl className="mt-3 grid grid-cols-3 gap-3 text-center text-sm">
+                        <div>
+                          <dt className="text-zinc-500">Saldo Inicial</dt>
+                          <dd className="mt-1 text-xl tabular-nums font-semibold text-zinc-100">
+                            {allocation.allocated_slots}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-zinc-500">Utilizadas</dt>
+                          <dd className="mt-1 text-xl tabular-nums font-semibold text-zinc-100">
+                            {allocation.used_slots}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-zinc-500">Disponíveis</dt>
+                          <dd className="mt-1 text-xl tabular-nums font-semibold text-zinc-50">
+                            {allocation.remaining_slots}
+                          </dd>
+                        </div>
+                      </dl>
+                    ) : (
+                      <p className="mt-2 text-sm text-zinc-500">
+                        Você não recebeu vagas neste mês.
+                      </p>
+                    )}
+                  </div>
+                )}
 
-                  <p className="border-t border-zinc-800 pt-4 text-xs leading-relaxed text-zinc-500">
-                    A quantidade informada representa apenas uma preferência. A distribuição será
-                    realizada automaticamente após o encerramento da manifestação, respeitando as
-                    regras operacionais da Companhia.
-                  </p>
+                {isOpen ? (
+                  <div className="mt-6 space-y-5">
+                    <div>
+                      <p className="mb-3 text-sm font-medium text-zinc-200">
+                        Manifestação de Interesse
+                      </p>
+                      <div className="space-y-2">
+                        <label className="flex cursor-pointer items-center gap-3 text-sm text-zinc-200">
+                          <input
+                            type="radio"
+                            name="want"
+                            checked={wantParticipate}
+                            onChange={() => setWantParticipate(true)}
+                            className="accent-zinc-200"
+                          />
+                          Quero participar
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-3 text-sm text-zinc-200">
+                          <input
+                            type="radio"
+                            name="want"
+                            checked={!wantParticipate}
+                            onChange={() => setWantParticipate(false)}
+                            className="accent-zinc-200"
+                          />
+                          Não desejo participar
+                        </label>
+                      </div>
+                    </div>
 
-                  <div className="flex flex-wrap gap-3">
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void onSave()}
-                      className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 transition hover:bg-white disabled:opacity-50"
-                    >
-                      {busy ? "Salvando…" : "Salvar"}
-                    </button>
-                    {interest && (
+                    {wantParticipate && (
+                      <label className="block text-sm">
+                        <span className="mb-1.5 block text-zinc-400">Quantidade desejada</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={selected.monthly_limit_per_officer}
+                          value={desiredSlots}
+                          onChange={(e) => setDesiredSlots(Number(e.target.value))}
+                          className="w-28 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 tabular-nums text-zinc-100"
+                        />
+                      </label>
+                    )}
+
+                    <div className="flex flex-wrap gap-3">
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => void onCancel()}
-                        className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 transition hover:border-zinc-500 hover:bg-zinc-900 disabled:opacity-50"
+                        onClick={() => void onSave()}
+                        className="rounded-lg bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 hover:bg-white disabled:opacity-50"
                       >
-                        Remover manifestação
+                        {busy ? "Salvando…" : "Salvar"}
                       </button>
-                    )}
-                  </div>
-                </div>
-              ) : !isDistributed ? (
-                <div className="mt-6 space-y-4">
-                  <p className="text-sm text-amber-200/90">
-                    A manifestação de interesse já foi encerrada.
-                    {selected.status === "DISTRIBUTED_PENDING"
-                      ? " Aguardando a distribuição das vagas."
-                      : ""}
-                  </p>
-                  {interest ? (
-                    <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-sm text-zinc-300">
-                      <p>
-                        Sua resposta:{" "}
-                        <span className="text-zinc-100">
-                          {interest.interested ? "Quero participar" : "Não desejo participar"}
-                        </span>
-                      </p>
-                      {interest.interested && (
-                        <p className="mt-1">
-                          Quantidade desejada:{" "}
-                          <span className="tabular-nums text-zinc-100">{interest.desired_slots}</span>
-                        </p>
+                      {interest && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void onCancelInterest()}
+                          className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                        >
+                          Remover manifestação
+                        </button>
                       )}
                     </div>
-                  ) : (
-                    <p className="text-sm text-zinc-500">Você não registrou manifestação neste mês.</p>
-                  )}
-                </div>
-              ) : null}
-            </section>
+                  </div>
+                ) : !isDistributed ? (
+                  <div className="mt-6 space-y-4">
+                    <p className="text-sm text-amber-200/90">
+                      A manifestação de interesse já foi encerrada.
+                      {selected.status === "DISTRIBUTED_PENDING"
+                        ? " Aguardando a distribuição das vagas."
+                        : ""}
+                    </p>
+                    {interest ? (
+                      <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 px-4 py-3 text-sm text-zinc-300">
+                        <p>
+                          Sua resposta:{" "}
+                          <span className="text-zinc-100">
+                            {interest.interested
+                              ? "Quero participar"
+                              : "Não desejo participar"}
+                          </span>
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-zinc-500">
+                        Você não registrou manifestação neste mês.
+                      </p>
+                    )}
+                  </div>
+                ) : null}
+              </section>
+
+              {canEnroll && cal && (
+                <section>
+                  <h3 className="mb-3 text-sm font-medium text-zinc-200">
+                    Calendário de escalas
+                  </h3>
+                  <DejemShiftMonthlyCalendar
+                    year={selected.year}
+                    month={selected.month}
+                    days={cal.days}
+                    selected={selectedDay}
+                    onSelect={setSelectedDay}
+                    onPrev={() => undefined}
+                    onNext={() => undefined}
+                    hideNav
+                  />
+                </section>
+              )}
+            </>
           )}
         </div>
+      )}
+
+      {selectedDay && (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+            aria-label="Fechar painel"
+            onClick={() => setSelectedDay(null)}
+          />
+          <DejemMyEnrollmentDrawer
+            open
+            isoDate={selectedDay}
+            detail={dayDetail}
+            busy={busy}
+            remainingSlots={allocation?.remaining_slots ?? 0}
+            onClose={() => setSelectedDay(null)}
+            onEnroll={onEnroll}
+            onCancel={onCancelEnrollment}
+          />
+        </>
       )}
     </OperationalLayout>
   );

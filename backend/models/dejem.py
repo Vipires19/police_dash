@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    String,
     Time,
     UniqueConstraint,
     func,
@@ -30,7 +31,15 @@ class DejemMonthStatus(str, enum.Enum):
 class DejemShiftStatus(str, enum.Enum):
     OPEN = "OPEN"
     CLOSED = "CLOSED"
+    READY_FOR_MAP = "READY_FOR_MAP"
+    INTEGRATED = "INTEGRATED"
     FINISHED = "FINISHED"
+
+
+class DejemShiftType(str, enum.Enum):
+    FT = "FT"
+    ROCAM = "ROCAM"
+    OUTROS = "OUTROS"
 
 
 class ParticipationType(str, enum.Enum):
@@ -43,6 +52,16 @@ class ParticipantStatus(str, enum.Enum):
     REGISTERED = "REGISTERED"
     CONFIRMED = "CONFIRMED"
     CANCELLED = "CANCELLED"
+
+
+class DejemEnrollmentAction(str, enum.Enum):
+    ENROLLED = "ENROLLED"
+    CANCELLED = "CANCELLED"
+    ADMIN_ADDED = "ADMIN_ADDED"
+    ADMIN_REMOVED = "ADMIN_REMOVED"
+    CLOSED = "CLOSED"
+    INTEGRATED = "INTEGRATED"
+    MAP_REOPENED = "MAP_REOPENED"
 
 
 class DejemMonth(Base):
@@ -154,6 +173,12 @@ class DejemShift(Base):
     date: Mapped[date] = mapped_column(Date(), nullable=False, index=True)
     start_time: Mapped[time] = mapped_column(Time(), nullable=False)
     end_time: Mapped[time] = mapped_column(Time(), nullable=False)
+    shift_type: Mapped[DejemShiftType] = mapped_column(
+        Enum(DejemShiftType, name="dejemshifttype", create_type=False),
+        nullable=False,
+        default=DejemShiftType.FT,
+        index=True,
+    )
     capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[DejemShiftStatus] = mapped_column(
         Enum(DejemShiftStatus, name="dejemshiftstatus", create_type=False),
@@ -162,19 +187,67 @@ class DejemShift(Base):
         index=True,
     )
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    service_scale_id: Mapped[int | None] = mapped_column(
+        ForeignKey("service_scales.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    integrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    integrated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     month: Mapped["DejemMonth"] = relationship("DejemMonth", back_populates="shifts")
     created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
+    closed_by: Mapped["User | None"] = relationship("User", foreign_keys=[closed_by_id])
+    integrated_by: Mapped["User | None"] = relationship("User", foreign_keys=[integrated_by_id])
     participants: Mapped[list["DejemParticipant"]] = relationship(
         "DejemParticipant",
         back_populates="shift",
         cascade="all, delete-orphan",
     )
+
+
+class DejemShiftTemplate(Base):
+    __tablename__ = "dejem_shift_templates"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    shift_type: Mapped[DejemShiftType] = mapped_column(
+        Enum(DejemShiftType, name="dejemshifttype", create_type=False),
+        nullable=False,
+        default=DejemShiftType.FT,
+        index=True,
+    )
+    start_time: Mapped[time] = mapped_column(Time(), nullable=False)
+    end_time: Mapped[time] = mapped_column(Time(), nullable=False)
+    default_capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
 
 
 class DejemParticipant(Base):
@@ -201,11 +274,59 @@ class DejemParticipant(Base):
         default=ParticipantStatus.REGISTERED,
         index=True,
     )
+    enrolled_by_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    consumes_balance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
         nullable=False,
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
 
     shift: Mapped["DejemShift"] = relationship("DejemShift", back_populates="participants")
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
+    enrolled_by: Mapped["User | None"] = relationship("User", foreign_keys=[enrolled_by_id])
+    cancelled_by: Mapped["User | None"] = relationship("User", foreign_keys=[cancelled_by_id])
+
+
+class DejemEnrollmentAudit(Base):
+    __tablename__ = "dejem_enrollment_audits"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    action: Mapped[DejemEnrollmentAction] = mapped_column(
+        Enum(DejemEnrollmentAction, name="dejemenrollmentaction", create_type=False),
+        nullable=False,
+        index=True,
+    )
+    shift_id: Mapped[int] = mapped_column(
+        ForeignKey("dejem_shifts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    participant_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dejem_participants.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    subject_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    details: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        index=True,
+    )
+
+    actor: Mapped["User"] = relationship("User", foreign_keys=[actor_id])
+    subject: Mapped["User | None"] = relationship("User", foreign_keys=[subject_user_id])

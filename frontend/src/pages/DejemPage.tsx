@@ -1,9 +1,11 @@
 import { Link } from "react-router-dom";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
+import { isDejemShiftViewerRole } from "@/types";
 
 export function DejemPage() {
-  const { isDejemAdmin } = useAuth();
+  const { user, isDejemAdmin } = useAuth();
+  const canViewShifts = user ? isDejemShiftViewerRole(user.role) : false;
 
   return (
     <OperationalLayout>
@@ -28,7 +30,15 @@ export function DejemPage() {
             to="/dejem/admin"
             className="rounded-lg border border-zinc-700 px-4 py-2 text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-900"
           >
-            Manifestação de Interesse
+            Manifestação / Distribuição
+          </Link>
+        )}
+        {canViewShifts && (
+          <Link
+            to="/dejem/shifts"
+            className="rounded-lg border border-zinc-700 px-4 py-2 text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-900"
+          >
+            Escalas DEJEM
           </Link>
         )}
       </nav>

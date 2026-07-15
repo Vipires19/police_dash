@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, Copy, X } from "lucide-react";
+import { Check, Copy, Eye, Share2, X } from "lucide-react";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
 import * as scalesApi from "@/services/serviceScalesApi";
@@ -17,18 +17,21 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [previewMode, setPreviewMode] = useState(true);
+  const [shareHint, setShareHint] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !scaleId) return;
     setLoading(true);
     setErr(null);
     setCopied(false);
+    setShareHint(null);
     try {
       const res = await scalesApi.exportScale(token, scaleId);
       setText(res.text);
     } catch (e) {
       setText("");
-      setErr(e instanceof ApiError ? e.detail : "Falha ao gerar exportação");
+      setErr(e instanceof ApiError ? e.detail : "Falha ao gerar mensagem operacional");
     } finally {
       setLoading(false);
     }
@@ -40,6 +43,8 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
       setText("");
       setErr(null);
       setCopied(false);
+      setPreviewMode(true);
+      setShareHint(null);
     }
   }, [open, scaleId, load]);
 
@@ -52,6 +57,26 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
     } catch {
       setErr("Não foi possível copiar. Selecione o texto manualmente.");
     }
+  }
+
+  async function handleShare() {
+    if (!text) return;
+    setShareHint(null);
+    try {
+      if (typeof navigator.share === "function") {
+        await navigator.share({
+          title: scaleTitle ?? "Escala de Serviço",
+          text,
+        });
+        return;
+      }
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") return;
+    }
+    const wa = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(wa, "_blank", "noopener,noreferrer");
+    setShareHint("Abrindo WhatsApp…");
+    window.setTimeout(() => setShareHint(null), 2500);
   }
 
   if (!open) return null;
@@ -67,9 +92,9 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
       <div className="fixed inset-x-4 top-[8vh] z-[70] mx-auto flex max-h-[84vh] w-full max-w-lg flex-col rounded-xl border border-zinc-700 bg-zinc-950 shadow-2xl sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2">
         <header className="flex items-start justify-between gap-3 border-b border-zinc-800 px-5 py-4">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-zinc-500">Exportar escala</p>
+            <p className="text-[10px] uppercase tracking-wider text-zinc-500">Mensagem operacional</p>
             <h2 className="mt-1 text-lg font-semibold text-zinc-50">{scaleTitle ?? "Escala publicada"}</h2>
-            <p className="mt-1 text-xs text-zinc-500">Texto pronto para colar no WhatsApp</p>
+            <p className="mt-1 text-xs text-zinc-500">Gerada automaticamente a partir do template</p>
           </div>
           <button type="button" onClick={onClose} className="rounded p-2 text-zinc-400 hover:bg-zinc-900 hover:text-white">
             <X className="h-5 w-5" />
@@ -77,13 +102,19 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
         </header>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading && <p className="text-sm text-zinc-500">Gerando texto operacional…</p>}
+          {loading && <p className="text-sm text-zinc-500">Gerando mensagem…</p>}
           {err && (
             <p className="mb-3 rounded border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-200">
               {err}
             </p>
           )}
-          {!loading && text && (
+          {shareHint && <p className="mb-2 text-xs text-sky-400">{shareHint}</p>}
+          {!loading && text && previewMode && (
+            <pre className="whitespace-pre-wrap rounded-lg border border-zinc-800 bg-black/50 p-4 font-mono text-xs leading-relaxed text-zinc-100">
+              {text}
+            </pre>
+          )}
+          {!loading && text && !previewMode && (
             <textarea
               readOnly
               value={text}
@@ -93,13 +124,24 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
           )}
         </div>
 
-        <footer className="flex gap-2 border-t border-zinc-800 p-4">
+        <footer className="flex flex-wrap gap-2 border-t border-zinc-800 p-4">
           <button
             type="button"
-            onClick={onClose}
-            className="flex-1 rounded-lg border border-zinc-700 py-2 text-sm text-zinc-400 hover:bg-zinc-900"
+            disabled={!text || loading}
+            onClick={() => setPreviewMode((v) => !v)}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-zinc-700 py-2 text-sm text-zinc-300 hover:bg-zinc-900 disabled:opacity-40"
           >
-            Fechar
+            <Eye className="h-4 w-4" />
+            {previewMode ? "Editar vista" : "Visualizar"}
+          </button>
+          <button
+            type="button"
+            disabled={!text || loading}
+            onClick={() => void handleShare()}
+            className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-sky-800/60 bg-sky-950/40 py-2 text-sm font-medium text-sky-200 disabled:opacity-40"
+          >
+            <Share2 className="h-4 w-4" />
+            Compartilhar
           </button>
           <button
             type="button"
@@ -115,7 +157,7 @@ export function ScaleExportModal({ open, scaleId, scaleTitle, onClose }: Props) 
             ) : (
               <>
                 <Copy className="h-4 w-4" />
-                Copiar
+                📋 Copiar
               </>
             )}
           </button>

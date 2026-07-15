@@ -65,13 +65,31 @@ export interface ServiceScalePublic {
   scale_date: string;
   title: string;
   description: string | null;
+  fardamento: string | null;
   status: ScaleStatus;
   created_by_id: number;
   created_by_label: string | null;
   published_at: string | null;
+  current_version_number: number | null;
   created_at: string;
   updated_at: string;
   teams: ScaleTeamPublic[];
+}
+
+export interface ScaleVersionPublic {
+  id: number;
+  service_scale_id: number;
+  version_number: number;
+  published_at: string;
+  published_by_id: number;
+  published_by_label: string | null;
+  change_summary: string | null;
+  dejem_integrated_count: number;
+  created_at: string;
+}
+
+export interface ScaleVersionDetail extends ScaleVersionPublic {
+  export_text: string;
 }
 
 export interface ScaleDayDetailResponse {
@@ -79,6 +97,25 @@ export interface ScaleDayDetailResponse {
   staff_roster: StaffRosterEntry[];
   vehicles_ft: ScaleVehicleOption[];
   vehicles_ro_cam: ScaleVehicleOption[];
+  dejem_blocks: DejemMapBlock[];
+}
+
+export interface DejemMapMember {
+  user_id: number;
+  patente: string;
+  nome_guerra: string;
+  display_order: number;
+}
+
+export interface DejemMapBlock {
+  shift_id: number;
+  title: string;
+  shift_type: "FT" | "ROCAM" | "OUTROS";
+  start_time: string;
+  end_time: string;
+  status: string;
+  vehicle_prefixo: string | null;
+  members: DejemMapMember[];
 }
 
 export interface ScaleLogFeedItem {

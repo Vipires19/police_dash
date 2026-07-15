@@ -22,19 +22,28 @@ from models.leaves import LeaveApprovalLog, LeaveRequest  # noqa: F401
 from models.vacation import VacationApprovalLog, VacationRequest  # noqa: F401
 from models.service_scale import (  # noqa: F401
     ScaleLog,
+    ScaleMessageTemplate,
     ScaleTeam,
     ScaleTeamMember,
     ServiceScale,
+    ServiceScaleVersion,
 )
 from models.stolen_vehicle import StolenVehicle  # noqa: F401
 from models.criminal_watch import CriminalWatchNote, CriminalWatchVehicle, VehicleQruCode  # noqa: F401
 from models.dejem import (  # noqa: F401
     DejemAllocation,
+    DejemEnrollmentAudit,
     DejemInterest,
     DejemMonth,
     DejemParticipant,
     DejemShift,
+    DejemShiftTemplate,
 )
+from models.operational_publication import (  # noqa: F401
+    OperationalPublication,
+    OperationalPublicationAudit,
+)
+
 
 config = context.config
 if config.config_file_name is not None:

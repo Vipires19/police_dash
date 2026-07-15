@@ -89,6 +89,10 @@ export const DEJEM_ADMIN_ROLES: Role[] = ["ADMIN", "CMD_TATICO", "N90", "TAT_CMD
 /** Reabrir distribuição DEJEM. */
 export const DEJEM_REOPEN_ROLES: Role[] = ["ADMIN", "CMD_TATICO"];
 
+/** Escalas DEJEM — edição e visualização. */
+export const DEJEM_SHIFT_EDITOR_ROLES: Role[] = ["ADMIN", "CMD_TATICO", "ADM"];
+export const DEJEM_SHIFT_VIEWER_ROLES: Role[] = ["ADMIN", "CMD_TATICO", "ADM", "TAT_CMD"];
+
 export const APPROVER_ROLES: Role[] = ["ADMIN", "CMD_TATICO", "N90", "TAT_CMD"];
 
 /** Criação e edição operacional de viaturas (comando + braçal; sem estagiário). */
@@ -112,6 +116,14 @@ export function isDejemAdminRole(role: Role): boolean {
 
 export function isDejemReopenRole(role: Role): boolean {
   return DEJEM_REOPEN_ROLES.includes(role);
+}
+
+export function isDejemShiftViewerRole(role: Role): boolean {
+  return DEJEM_SHIFT_VIEWER_ROLES.includes(role);
+}
+
+export function isDejemShiftEditorRole(role: Role): boolean {
+  return DEJEM_SHIFT_EDITOR_ROLES.includes(role);
 }
 
 export function canViewCompanyEfetivo(role: Role): boolean {

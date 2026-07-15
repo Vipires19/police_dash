@@ -8,6 +8,8 @@ import type {
   ScaleTeamMemberInput,
   ScaleExportResponse,
   ScaleTeamUpdatePayload,
+  ScaleVersionDetail,
+  ScaleVersionPublic,
   ServiceScalePublic,
 } from "@/types/serviceScale";
 
@@ -54,7 +56,7 @@ export function createScale(
 export function updateScale(
   token: string,
   scaleId: number,
-  body: { title?: string; description?: string | null },
+  body: { title?: string; description?: string | null; fardamento?: string | null },
 ) {
   return apiFetch<ServiceScalePublic>(`/service-scales/${scaleId}`, {
     method: "PATCH",
@@ -71,11 +73,57 @@ export function addScaleTeam(token: string, scaleId: number, body: ScaleTeamCrea
   });
 }
 
+export function previewPublishScale(
+  token: string,
+  scaleId: number,
+  body?: { description?: string | null },
+) {
+  return apiFetch<{
+    text: string;
+    fardamento: string | null;
+    description: string | null;
+    team_count: number;
+    dejem_count: number;
+  }>(`/service-scales/${scaleId}/publish/preview`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(body ?? {}),
+  });
+}
+
 export function publishScale(token: string, scaleId: number) {
   return apiFetch<ServiceScalePublic>(`/service-scales/${scaleId}/publish`, {
     method: "POST",
     token,
   });
+}
+
+export function unpublishScale(token: string, scaleId: number) {
+  return apiFetch<ServiceScalePublic>(`/service-scales/${scaleId}/unpublish`, {
+    method: "POST",
+    token,
+  });
+}
+
+export function listScaleVersions(token: string, scaleId: number) {
+  return apiFetch<ScaleVersionPublic[]>(`/service-scales/${scaleId}/versions`, {
+    method: "GET",
+    token,
+  });
+}
+
+export function getScaleVersion(token: string, scaleId: number, versionNumber: number) {
+  return apiFetch<ScaleVersionDetail>(
+    `/service-scales/${scaleId}/versions/${versionNumber}`,
+    { method: "GET", token },
+  );
+}
+
+export function exportScaleVersion(token: string, scaleId: number, versionNumber: number) {
+  return apiFetch<{ text: string }>(
+    `/service-scales/${scaleId}/versions/${versionNumber}/export`,
+    { method: "GET", token },
+  );
 }
 
 export function updateScaleTeam(token: string, teamId: number, body: ScaleTeamUpdatePayload) {

@@ -16,6 +16,7 @@ from models.service_scale import (
     ScaleTeam,
     ScaleTeamMember,
     ServiceScale,
+    ServiceScaleVersion,
 )
 from models.user import User, UserRole, UserStatus
 from models.vacation import (
@@ -87,6 +88,7 @@ def _scale_detail_load_options():
         .joinedload(ScaleTeam.members)
         .joinedload(ScaleTeamMember.assigned_vehicle),
         joinedload(ServiceScale.created_by),
+        joinedload(ServiceScale.current_version).joinedload(ServiceScaleVersion.published_by),
     )
 
 
@@ -388,32 +390,55 @@ def build_calendar(db: Session, year: int, month: int, *, hide_drafts: bool = Fa
 
 
 def get_day_detail(db: Session, scale_date: date, *, can_edit: bool) -> dict:
+    from models.dejem import DejemShiftStatus
+    from services import dejem_map_service as dejem_map
+
     scale = _load_scale_by_date(db, scale_date)
     if scale and scale.status == ScaleStatus.DRAFT and not can_edit:
         scale = None
     ft = list_operating_vehicles(db, VehicleModalidade.FT)
     ro = list_operating_vehicles(db, VehicleModalidade.ROCAM)
+
+    if scale and scale.status == ScaleStatus.PUBLISHED:
+        dejem_statuses = {DejemShiftStatus.INTEGRATED}
+    elif can_edit:
+        # Prévia para o editor: o que será incorporado na publicação
+        dejem_statuses = {
+            DejemShiftStatus.CLOSED,
+            DejemShiftStatus.READY_FOR_MAP,
+            DejemShiftStatus.INTEGRATED,
+        }
+    else:
+        dejem_statuses = set()
+
+    dejem_blocks = (
+        dejem_map.build_map_blocks(db, scale_date, statuses=dejem_statuses)
+        if dejem_statuses
+        else []
+    )
+
     return {
         "scale": scale,
         "staff_roster": build_staff_roster(db, scale_date),
         "vehicles_ft": ft,
         "vehicles_ro_cam": ro,
+        "dejem_blocks": dejem_blocks,
     }
 
 
 def create_scale(db: Session, actor: User, payload: ServiceScaleCreate) -> ServiceScale:
     if db.scalar(select(func.count()).select_from(ServiceScale).where(ServiceScale.scale_date == payload.scale_date)):
         raise ValueError("Já existe escala para esta data")
+    # Publicação inteligente só pelo pipeline (sempre nasce como DRAFT).
     row = ServiceScale(
         scale_date=payload.scale_date,
         title=payload.title,
         description=payload.description,
-        status=payload.status if payload.status == ScaleStatus.DRAFT else ScaleStatus.DRAFT,
+        fardamento=payload.fardamento,
+        status=ScaleStatus.DRAFT,
         created_by_id=actor.id,
-        published_at=datetime.now(_BR) if payload.status == ScaleStatus.PUBLISHED else None,
+        published_at=None,
     )
-    if payload.status == ScaleStatus.PUBLISHED:
-        row.status = ScaleStatus.PUBLISHED
     db.add(row)
     db.flush()
     _append_scale_log(
@@ -423,14 +448,6 @@ def create_scale(db: Session, actor: User, payload: ServiceScaleCreate) -> Servi
         action=ScaleLogAction.CREATED,
         description=f"Escala criada: {row.title} ({row.scale_date.strftime('%d/%m/%Y')})",
     )
-    if row.status == ScaleStatus.PUBLISHED:
-        _append_scale_log(
-            db,
-            scale_id=row.id,
-            actor_id=actor.id,
-            action=ScaleLogAction.PUBLISHED,
-            description="Escala publicada na criação",
-        )
     db.commit()
     db.refresh(row)
     return _load_scale(db, row.id) or row
@@ -447,6 +464,9 @@ def update_scale(db: Session, scale_id: int, actor: User, payload: ServiceScaleU
     if payload.description is not None and payload.description != row.description:
         changes.append("descrição atualizada")
         row.description = payload.description
+    if payload.fardamento is not None and payload.fardamento != row.fardamento:
+        changes.append(f"fardamento: {row.fardamento or '—'} → {payload.fardamento or '—'}")
+        row.fardamento = payload.fardamento
     if changes:
         _append_scale_log(
             db,
@@ -618,29 +638,56 @@ def remove_team(db: Session, team_id: int, actor: User) -> ServiceScale:
 
 
 def publish_scale(db: Session, scale_id: int, actor: User) -> ServiceScale:
+    from services.scale_publish_pipeline import PublishPipelineError, run_publish_pipeline
+
+    try:
+        return run_publish_pipeline(db, scale_id, actor)
+    except PublishPipelineError:
+        raise
+    except ValueError:
+        raise
+
+
+def unpublish_scale(db: Session, scale_id: int, actor: User) -> ServiceScale:
+    from services import dejem_map_service as dejem_map
+
     row = _load_scale(db, scale_id)
     if not row:
         raise ValueError("Escala não encontrada")
-    if not row.teams:
-        raise ValueError("Adicione ao menos uma equipe antes de publicar")
-    row.status = ScaleStatus.PUBLISHED
-    row.published_at = datetime.now(_BR)
+    if row.status != ScaleStatus.PUBLISHED:
+        raise ValueError("Somente escalas publicadas podem ser despublicadas")
+    reopened = dejem_map.reopen_integrated_shifts_for_scale(
+        db,
+        scale_id=row.id,
+        actor=actor,
+    )
+    row.status = ScaleStatus.DRAFT
+    row.published_at = None
+    row.current_version_id = None  # histórico de versões permanece
     _append_scale_log(
         db,
         scale_id=row.id,
         actor_id=actor.id,
-        action=ScaleLogAction.PUBLISHED,
-        description=f"Escala publicada: {row.title}",
+        action=ScaleLogAction.UNPUBLISHED,
+        description=(
+            f"Escala despublicada: {row.title}"
+            + (f" ({reopened} DEJEM reaberta(s) para o mapa)" if reopened else "")
+            + ". Histórico de versões preservado."
+        ),
     )
     db.commit()
     return _load_scale(db, scale_id) or row
 
 
 def delete_scale(db: Session, scale_id: int, actor: User) -> None:
+    from services import dejem_map_service as dejem_map
+
     row = db.get(ServiceScale, scale_id)
     if not row:
         raise ValueError("Escala não encontrada")
     title = row.title
+    # Reabre DEJEM antes de remover a escala (evita INTEGRATED órfã).
+    dejem_map.reopen_integrated_shifts_for_scale(db, scale_id=scale_id, actor=actor)
     db.delete(row)
     db.commit()
 

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Share2, Trash2, X } from "lucide-react";
 import { ScaleExportModal } from "./ScaleExportModal";
+import { ScalePublishPreviewModal } from "./ScalePublishPreviewModal";
+import { ScaleVersionsPanel } from "./ScaleVersionsPanel";
 import {
   FT_MISSION_PRESETS,
   ROCAM_MISSION_PRESETS,
@@ -102,7 +104,12 @@ interface Props {
   busy: boolean;
   onClose: () => void;
   onCreateScale: (title: string) => void;
+  onUpdateScale?: (
+    scaleId: number,
+    body: { fardamento?: string | null; description?: string | null },
+  ) => void | Promise<void>;
   onPublish: (scaleId: number) => void;
+  onUnpublish: (scaleId: number) => void;
   onAddTeam: (scaleId: number, payload: TeamFormPayload) => void;
   onEditTeam: (teamId: number, payload: TeamFormPayload) => void;
   onRemoveTeam: (teamId: number) => void;
@@ -117,14 +124,19 @@ export function ScaleDayDrawer({
   busy,
   onClose,
   onCreateScale,
+  onUpdateScale,
   onPublish,
+  onUnpublish,
   onAddTeam,
   onEditTeam,
   onRemoveTeam,
   onDeleteScale,
 }: Props) {
   const scale = detail?.scale ?? null;
+  const dejemBlocks = detail?.dejem_blocks ?? [];
   const [title, setTitle] = useState("");
+  const [fardamentoDraft, setFardamentoDraft] = useState("");
+  const [obsDraft, setObsDraft] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<ScaleTeamPublic | null>(null);
   const [modality, setModality] = useState<ScaleModality>("FT");
@@ -137,6 +149,7 @@ export function ScaleDayDrawer({
   const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
   const [roCamBikes, setRoCamBikes] = useState<Record<number, number>>({});
   const [exportOpen, setExportOpen] = useState(false);
+  const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
 
   const displayDate = useMemo(
     () =>
@@ -223,6 +236,11 @@ export function ScaleDayDrawer({
   useEffect(() => {
     if (!open) resetForm();
   }, [open, isoDate]);
+
+  useEffect(() => {
+    setFardamentoDraft(scale?.fardamento ?? "");
+    setObsDraft(scale?.description ?? "");
+  }, [scale?.id, scale?.fardamento, scale?.description]);
 
   const toggleMember = (userId: number) => {
     setSelectedMembers((prev) => {
@@ -312,7 +330,14 @@ export function ScaleDayDrawer({
         {scale && (
           <>
             <div className="mb-4 flex flex-wrap gap-2">
-              <h3 className="flex-1 text-base font-semibold text-zinc-100">{scale.title}</h3>
+              <h3 className="flex-1 text-base font-semibold text-zinc-100">
+                {scale.title}
+                {scale.current_version_number != null && (
+                  <span className="ml-2 rounded border border-zinc-700 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-zinc-400">
+                    v{scale.current_version_number}
+                  </span>
+                )}
+              </h3>
               {scale.status === "PUBLISHED" && !formOpen && (
                 <button
                   type="button"
@@ -321,17 +346,36 @@ export function ScaleDayDrawer({
                   className="inline-flex items-center gap-1 rounded border border-sky-800/60 bg-sky-950/40 px-3 py-1 text-xs font-medium text-sky-300"
                 >
                   <Share2 className="h-3 w-3" />
-                  Exportar
+                  Mensagem
                 </button>
               )}
-              {canEdit && scale.status === "DRAFT" && (
+              {canEdit && (
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => onPublish(scale.id)}
+                  onClick={() => setPublishPreviewOpen(true)}
                   className="rounded border border-emerald-700/60 bg-emerald-950/40 px-3 py-1 text-xs font-medium text-emerald-300"
+                  title="Preview da mensagem → publicar"
                 >
-                  Publicar
+                  {scale.status === "PUBLISHED" ? "Republicar" : "Publicar Escala"}
+                </button>
+              )}
+              {canEdit && scale.status === "PUBLISHED" && (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Despublicar esta escala? Escalas DEJEM do Mapa Força voltam para pronta p/ mapa. O histórico de versões é preservado.",
+                      )
+                    ) {
+                      onUnpublish(scale.id);
+                    }
+                  }}
+                  className="rounded border border-amber-800/60 bg-amber-950/30 px-3 py-1 text-xs font-medium text-amber-200"
+                >
+                  Despublicar
                 </button>
               )}
               {canEdit && !formOpen && (
@@ -362,6 +406,42 @@ export function ScaleDayDrawer({
                 </button>
               )}
             </div>
+
+            {canEdit && onUpdateScale && (
+              <section className="mb-4 space-y-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+                <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
+                  Fardamento (mensagem operacional)
+                  <input
+                    value={fardamentoDraft}
+                    onChange={(e) => setFardamentoDraft(e.target.value)}
+                    onBlur={() => {
+                      const next = fardamentoDraft.trim() || null;
+                      if (next !== (scale.fardamento ?? null)) {
+                        onUpdateScale(scale.id, { fardamento: next });
+                      }
+                    }}
+                    placeholder="Ex.: 5º Uniforme"
+                    className="mt-1 w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+                  />
+                </label>
+                <label className="block text-[10px] uppercase tracking-wider text-zinc-500">
+                  Observações
+                  <textarea
+                    value={obsDraft}
+                    onChange={(e) => setObsDraft(e.target.value)}
+                    onBlur={() => {
+                      const next = obsDraft.trim() || null;
+                      if (next !== (scale.description ?? null)) {
+                        onUpdateScale(scale.id, { description: next });
+                      }
+                    }}
+                    rows={2}
+                    placeholder="Opcional — aparece no final da mensagem"
+                    className="mt-1 w-full resize-none rounded border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100"
+                  />
+                </label>
+              </section>
+            )}
 
             {formOpen && canEdit && (
               <section className="mb-4 space-y-3 rounded-lg border border-amber-900/40 bg-amber-950/20 p-4">
@@ -692,6 +772,47 @@ export function ScaleDayDrawer({
                 </li>
               ))}
             </ul>
+
+            {dejemBlocks.length > 0 && (
+              <section className="mt-6 space-y-3 border-t border-zinc-800 pt-5">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-zinc-500">DEJEM</p>
+                  {scale.status === "DRAFT" && (
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      Prévia — serão incorporadas ao Mapa Força ao publicar.
+                    </p>
+                  )}
+                </div>
+                <ul className="space-y-3">
+                  {dejemBlocks.map((block) => (
+                    <li
+                      key={block.shift_id}
+                      className="rounded-lg border border-violet-900/40 bg-violet-950/20 p-4"
+                    >
+                      <p className="font-semibold tracking-wide text-violet-100">{block.title}</p>
+                      <p className="mt-0.5 text-xs tabular-nums text-zinc-400">
+                        {block.start_time.slice(0, 5)} → {block.end_time.slice(0, 5)}
+                      </p>
+                      {block.vehicle_prefixo && (
+                        <p className="mt-1 font-mono text-xs text-zinc-300">{block.vehicle_prefixo}</p>
+                      )}
+                      <ul className="mt-3 space-y-1 border-t border-violet-900/30 pt-3">
+                        {block.members.map((m) => (
+                          <li key={m.user_id} className="text-sm text-zinc-200">
+                            {m.patente} {m.nome_guerra}
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            <ScaleVersionsPanel
+              key={`${scale.id}-${scale.current_version_number ?? 0}-${scale.updated_at}`}
+              scaleId={scale.id}
+            />
           </>
         )}
       </div>
@@ -701,6 +822,24 @@ export function ScaleDayDrawer({
         scaleId={scale?.id ?? null}
         scaleTitle={scale?.title}
         onClose={() => setExportOpen(false)}
+      />
+      <ScalePublishPreviewModal
+        open={publishPreviewOpen}
+        scaleId={scale?.id ?? null}
+        scaleTitle={scale?.title}
+        initialDescription={scale?.description}
+        busy={busy}
+        onClose={() => setPublishPreviewOpen(false)}
+        onPublish={() => {
+          if (scale) {
+            onPublish(scale.id);
+            setPublishPreviewOpen(false);
+          }
+        }}
+        onSaveObservations={async (description) => {
+          if (!scale || !onUpdateScale) return;
+          await onUpdateScale(scale.id, { description });
+        }}
       />
     </aside>
   );

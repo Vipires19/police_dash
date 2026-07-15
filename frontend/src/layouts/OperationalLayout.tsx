@@ -11,6 +11,7 @@ import {
   Menu,
   Palmtree,
   Radio,
+  Rocket,
   ScanSearch,
   Shield,
   Tags,
@@ -44,6 +45,12 @@ type NavGroup = {
 function matchNavTarget(pathname: string, search: string, to: string): boolean {
   const [path, queryString] = to.split("?");
   if (path === "/dejem" && (pathname === "/dejem" || pathname.startsWith("/dejem/"))) {
+    return true;
+  }
+  if (
+    path === "/publicacao-operacional" &&
+    (pathname === "/publicacao-operacional" || pathname.startsWith("/publicacao-operacional/"))
+  ) {
     return true;
   }
   if (pathname !== path) return false;
@@ -162,6 +169,7 @@ export function OperationalLayout({ children }: { children: ReactNode }) {
   const adminGroup: NavGroup = useMemo(() => {
     const items: NavItem[] = [
       { to: "/escala-servico", label: "Escala de Serviço", icon: CalendarRange },
+      { to: "/publicacao-operacional", label: "Publicação Operacional", icon: Rocket },
       { to: "/dejem", label: "DEJEM", icon: CalendarClock },
       { to: "/viaturas", label: "Viaturas", icon: Truck },
     ];
