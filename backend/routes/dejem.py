@@ -358,7 +358,7 @@ def my_shift_calendar(
     _: User = Depends(get_current_approved_user),
     db: Session = Depends(get_db),
 ) -> DejemShiftCalendarResponse:
-    return shift_svc.get_calendar(db, year, month)
+    return shift_svc.build_shift_calendar(db, year, month)
 
 
 @router.get("/my/day", response_model=DejemMyDayDetail)
