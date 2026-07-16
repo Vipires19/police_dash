@@ -179,6 +179,8 @@ export interface DejemShiftPublic {
   filled_slots: number;
   available_slots: number;
   status: DejemShiftStatus;
+  vehicle_id: number | null;
+  vehicle_prefixo: string | null;
   created_by_id: number;
   created_at: string;
   updated_at: string;
@@ -192,6 +194,7 @@ export interface DejemShiftCreatePayload {
   shift_type: DejemShiftType;
   capacity: number;
   status?: DejemShiftStatus;
+  vehicle_id?: number | null;
 }
 
 export interface DejemShiftUpdatePayload {
@@ -201,6 +204,7 @@ export interface DejemShiftUpdatePayload {
   shift_type?: DejemShiftType;
   capacity?: number;
   status?: DejemShiftStatus;
+  vehicle_id?: number | null;
 }
 
 export interface DejemShiftCalendarDay {

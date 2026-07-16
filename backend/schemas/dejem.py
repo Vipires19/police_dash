@@ -163,6 +163,7 @@ class DejemShiftCreate(BaseModel):
     shift_type: DejemShiftTypeEnum = DejemShiftTypeEnum.FT
     capacity: int = Field(ge=0)
     status: DejemShiftStatusEnum = DejemShiftStatusEnum.OPEN
+    vehicle_id: int | None = None
 
 
 class DejemShiftUpdate(BaseModel):
@@ -172,6 +173,7 @@ class DejemShiftUpdate(BaseModel):
     shift_type: DejemShiftTypeEnum | None = None
     capacity: int | None = Field(default=None, ge=0)
     status: DejemShiftStatusEnum | None = None
+    vehicle_id: int | None = None
 
 
 class DejemShiftPublic(BaseModel):
@@ -185,6 +187,8 @@ class DejemShiftPublic(BaseModel):
     filled_slots: int = 0
     available_slots: int = 0
     status: DejemShiftStatusEnum
+    vehicle_id: int | None = None
+    vehicle_prefixo: str | None = None
     created_by_id: int
     created_at: datetime
     updated_at: datetime

@@ -59,6 +59,7 @@ def list_shifts_for_date(
         select(DejemShift)
         .options(
             joinedload(DejemShift.participants).joinedload(DejemParticipant.user),
+            joinedload(DejemShift.vehicle),
         )
         .where(DejemShift.date == day)
         .order_by(DejemShift.start_time.asc(), DejemShift.id.asc())
@@ -99,6 +100,7 @@ def build_map_blocks(
         members = _active_members(shift)
         if not members:
             continue
+        vehicle = shift.vehicle
         blocks.append(
             DejemMapBlock(
                 shift_id=shift.id,
@@ -107,7 +109,7 @@ def build_map_blocks(
                 start_time=shift.start_time,
                 end_time=shift.end_time,
                 status=shift.status,  # type: ignore[arg-type]
-                vehicle_prefixo=None,
+                vehicle_prefixo=vehicle.prefixo if vehicle else None,
                 members=members,
             )
         )

@@ -175,23 +175,29 @@ class DejemShiftRepository:
         self.db = db
 
     def get_by_id(self, shift_id: int) -> DejemShift | None:
-        return self.db.get(DejemShift, shift_id)
+        return self.db.scalars(
+            select(DejemShift)
+            .where(DejemShift.id == shift_id)
+            .options(joinedload(DejemShift.vehicle))
+        ).first()
 
     def list_by_month(self, month_id: int) -> list[DejemShift]:
         stmt = (
             select(DejemShift)
             .where(DejemShift.month_id == month_id)
+            .options(joinedload(DejemShift.vehicle))
             .order_by(DejemShift.date.asc(), DejemShift.start_time.asc(), DejemShift.id.asc())
         )
-        return list(self.db.scalars(stmt).all())
+        return list(self.db.scalars(stmt).unique().all())
 
     def list_by_month_and_date(self, month_id: int, day: date) -> list[DejemShift]:
         stmt = (
             select(DejemShift)
             .where(DejemShift.month_id == month_id, DejemShift.date == day)
+            .options(joinedload(DejemShift.vehicle))
             .order_by(DejemShift.start_time.asc(), DejemShift.id.asc())
         )
-        return list(self.db.scalars(stmt).all())
+        return list(self.db.scalars(stmt).unique().all())
 
     def list_same_type_on_date(
         self,

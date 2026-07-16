@@ -8,7 +8,9 @@ import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
 import * as dejemApi from "@/services/dejemApi";
 import * as usersApi from "@/services/usersApi";
+import * as vehiclesApi from "@/services/vehiclesApi";
 import { isDejemShiftEditorRole, isDejemShiftViewerRole, type User } from "@/types";
+import type { Vehicle } from "@/types/vehicle";
 import type {
   DejemMonthGeneratePayload,
   DejemMonthGeneratePreview,
@@ -36,6 +38,7 @@ export function DejemShiftsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [detail, setDetail] = useState<DejemShiftDayDetail | null>(null);
   const [templates, setTemplates] = useState<DejemShiftTemplatePublic[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [efetivo, setEfetivo] = useState<User[]>([]);
   const [participantsByShift, setParticipantsByShift] = useState<
     Record<number, DejemParticipantAdminRow[]>
@@ -96,6 +99,10 @@ export function DejemShiftsPage() {
       .listEfetivo(token)
       .then(setEfetivo)
       .catch(() => setEfetivo([]));
+    void vehiclesApi
+      .listVehicles(token)
+      .then(setVehicles)
+      .catch(() => setVehicles([]));
   }, [token, canEdit]);
 
   useEffect(() => {
@@ -399,6 +406,7 @@ export function DejemShiftsPage() {
             canEdit={canEdit}
             busy={busy}
             templates={templates.filter((t) => t.is_active)}
+            vehicles={vehicles}
             monthId={cal?.month_id ?? detail?.month_id ?? null}
             efetivo={efetivo}
             participantsByShift={participantsByShift}

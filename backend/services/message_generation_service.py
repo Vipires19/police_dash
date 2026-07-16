@@ -32,24 +32,21 @@ _MONTHS_PT = (
     "Dezembro",
 )
 
-DEFAULT_TEMPLATE_BODY = """💀 ESCALA DE SERVIÇO 💀
+DEFAULT_TEMPLATE_BODY = """*💀 ESCALA DE SERVIÇO 💀*
 
-{{titulo}}
+*{{titulo}}*
 
-📅 {{data}}
+*📅 {{data}}*
 
-👕 Fardamento
+*👕 Fardamento*
 
 {{fardamento}}
-
-🕘 QTR
-
-{{qtr}}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 {{equipes}}
 ━━━━━━━━━━━━━━━━━━━━━━
-{{observacoes}}
+*📢 OBSERVAÇÕES*
+*{{observacoes}}*
 """
 
 _UNIT_TITLES: dict[str, str] = {
@@ -124,17 +121,52 @@ def format_date_var(scale_date: date | str) -> str:
     return f"Dia {scale_date.day:02d} de {month} de {scale_date.year}"
 
 
-def format_qtr_var(published_at: datetime | str | None) -> str:
-    if published_at is None or published_at == "":
-        return "—"
-    if isinstance(published_at, str):
-        published_at = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
-    local = published_at
-    if local.tzinfo is not None:
+def _normalize_hhmm(value: Any) -> str | None:
+    """Normaliza '06:00', '06:00:00', time ou datetime ISO → 'HH:MM'."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
         from zoneinfo import ZoneInfo
 
-        local = local.astimezone(ZoneInfo("America/Sao_Paulo"))
-    return f"{local.hour:02d}:{local.minute:02d}hs"
+        local = value
+        if local.tzinfo is not None:
+            local = local.astimezone(ZoneInfo("America/Sao_Paulo"))
+        return f"{local.hour:02d}:{local.minute:02d}"
+    if hasattr(value, "hour") and hasattr(value, "minute") and not isinstance(value, str):
+        return f"{int(value.hour):02d}:{int(value.minute):02d}"
+    text = str(value).strip()
+    if "T" in text:
+        try:
+            return _normalize_hhmm(datetime.fromisoformat(text.replace("Z", "+00:00")))
+        except ValueError:
+            return None
+    parts = text.split(":")
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+    return None
+
+
+def resolve_team_qtr(entity: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Extrai horário operacional da equipe/DEJEM a partir do snapshot.
+
+    Preferência: start_time/end_time → start_datetime/end_datetime.
+    Nunca usa published_at da escala.
+    """
+    start = _normalize_hhmm(entity.get("start_time"))
+    end = _normalize_hhmm(entity.get("end_time"))
+    if start and end:
+        return start, end
+    start = start or _normalize_hhmm(entity.get("start_datetime") or entity.get("start_at"))
+    end = end or _normalize_hhmm(entity.get("end_datetime") or entity.get("end_at"))
+    if start and end:
+        return start, end
+    return None, None
+
+
+def format_qtr_var(published_at: datetime | str | None) -> str:
+    """Legado: não usar para QTR de equipe. Preferir resolve_team_qtr."""
+    _ = published_at
+    return "—"
 
 
 def format_patente(patente: str) -> str:
@@ -142,9 +174,17 @@ def format_patente(patente: str) -> str:
     return re.sub(r"\s+", "", raw)
 
 
-def member_line(patente: str, nome_guerra: str) -> str:
-    name = (nome_guerra or "").strip().upper()
-    return f"{format_patente(patente)} {name}".strip()
+def member_line(member: dict[str, Any]) -> str:
+    patente = format_patente(member.get("patente", ""))
+
+    re = (member.get("re") or "").strip()
+
+    nome = (member.get("nome_guerra") or "").strip().upper()
+
+    if re:
+        return f"{patente} RE {re} {nome}"
+
+    return f"{patente} {nome}"
 
 
 def format_observacoes(description: str | None) -> str:
@@ -192,18 +232,33 @@ def _team_vehicle_prefixo(team: dict[str, Any]) -> str | None:
     return None
 
 
-def _format_team_block(*, label: str, vehicle: str | None, members: list[dict[str, Any]]) -> list[str]:
+def _format_team_block(
+    *,
+    label: str,
+    vehicle: str | None,
+    start: str | None,
+    end: str | None,
+    members: list[dict[str, Any]],
+) -> list[str]:
+
     lines = [
-        f"🚔 {label}",
-        "Viatura",
-        vehicle if vehicle else _VEHICLE_MISSING,
+        f"*🚔 {label}*",
+        f"*{vehicle if vehicle else _VEHICLE_MISSING}*",
     ]
+
+    if start and end:
+        lines.append(f"*🕘 QTR* Das {start} às {end}")
+
+    lines.append("")
+
     for m in members:
-        line = member_line(str(m.get("patente") or ""), str(m.get("nome_guerra") or ""))
+        line = member_line(m)   # <-- mudou aqui
         if line:
             lines.append(line)
+
     lines.append(_TEAM_SEPARATOR)
     lines.append("")
+
     return lines
 
 
@@ -230,10 +285,13 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
                 str(m.get("nome_guerra") or "").lower(),
             )
         )
+        start, end = resolve_team_qtr(team)
         lines.extend(
             _format_team_block(
                 label=mission,
                 vehicle=_team_vehicle_prefixo(team),
+                start=start,
+                end=end,
                 members=members,
             )
         )
@@ -249,10 +307,13 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
             )
         )
         vehicle = block.get("vehicle_prefixo")
+        start, end = resolve_team_qtr(block)
         lines.extend(
             _format_team_block(
                 label=label,
                 vehicle=str(vehicle) if vehicle else None,
+                start=start,
+                end=end,
                 members=members,
             )
         )
@@ -271,7 +332,8 @@ def build_variables_from_snapshot(snapshot: dict[str, Any]) -> dict[str, str]:
         "titulo": resolve_operational_title(unit),
         "data": format_date_var(snapshot.get("scale_date") or date.today().isoformat()),
         "fardamento": fardamento,
-        "qtr": format_qtr_var(snapshot.get("published_at")),
+        # QTR global removido: cada equipe/DEJEM exibe o próprio horário no bloco {{equipes}}.
+        "qtr": "",
         "equipes": build_equipes_from_snapshot(snapshot),
         "observacoes": format_observacoes(snapshot.get("description")),
     }

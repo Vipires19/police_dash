@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import type { User } from "@/types";
+import type { Vehicle } from "@/types/vehicle";
 import type {
   DejemParticipantAdminRow,
   DejemShiftCreatePayload,
@@ -29,6 +30,13 @@ function formatHeaderDate(iso: string): string {
   });
 }
 
+function activeVehicles(vehicles: Vehicle[]): Vehicle[] {
+  return vehicles
+    .filter((v) => v.status === "OPERANDO" || v.status === "RESERVA")
+    .slice()
+    .sort((a, b) => a.prefixo.localeCompare(b.prefixo, "pt-BR"));
+}
+
 type FormState = {
   start_time: string;
   end_time: string;
@@ -36,6 +44,7 @@ type FormState = {
   capacity: number;
   status: DejemShiftStatus;
   templateId: string;
+  vehicle_id: string;
 };
 
 const emptyForm = (): FormState => ({
@@ -45,6 +54,7 @@ const emptyForm = (): FormState => ({
   capacity: 4,
   status: "OPEN",
   templateId: "",
+  vehicle_id: "",
 });
 
 interface Props {
@@ -54,6 +64,7 @@ interface Props {
   canEdit: boolean;
   busy: boolean;
   templates: DejemShiftTemplatePublic[];
+  vehicles: Vehicle[];
   monthId: number | null;
   efetivo: User[];
   participantsByShift: Record<number, DejemParticipantAdminRow[]>;
@@ -78,6 +89,7 @@ export function DejemShiftDayDrawer({
   canEdit,
   busy,
   templates,
+  vehicles,
   monthId,
   efetivo,
   participantsByShift,
@@ -96,6 +108,7 @@ export function DejemShiftDayDrawer({
   const [form, setForm] = useState<FormState>(emptyForm);
   const [addUserId, setAddUserId] = useState("");
   const [addType, setAddType] = useState<ParticipationType>("NORMAL");
+  const vehicleOptions = activeVehicles(vehicles);
 
   useEffect(() => {
     if (!open) {
@@ -150,6 +163,7 @@ export function DejemShiftDayDrawer({
       capacity: s.capacity,
       status: s.status,
       templateId: "",
+      vehicle_id: s.vehicle_id != null ? String(s.vehicle_id) : "",
     });
   };
 
@@ -164,6 +178,7 @@ export function DejemShiftDayDrawer({
         shift_type: form.shift_type,
         capacity: form.capacity,
         status: "OPEN",
+        vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null,
       });
       setCreating(false);
       setForm(emptyForm());
@@ -181,8 +196,18 @@ export function DejemShiftDayDrawer({
         shift_type: form.shift_type,
         capacity: form.capacity,
         status: form.status,
+        vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null,
       });
       setEditingId(null);
+    } catch {
+      /* página */
+    }
+  };
+
+  const handleVehicleChange = async (shift: DejemShiftPublic, value: string) => {
+    const vehicleId = value ? Number(value) : null;
+    try {
+      await onUpdate(shift.id, { vehicle_id: vehicleId });
     } catch {
       /* página */
     }
@@ -231,6 +256,7 @@ export function DejemShiftDayDrawer({
                     form={form}
                     setForm={setForm}
                     templates={templates}
+                    vehicles={vehicleOptions}
                     onApplyTemplate={applyTemplate}
                     showStatus
                     busy={busy}
@@ -249,6 +275,12 @@ export function DejemShiftDayDrawer({
                           {DEJEM_SHIFT_TYPE_LABELS[s.shift_type]} · {s.filled_slots}/{s.capacity}{" "}
                           vagas
                         </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          Viatura:{" "}
+                          <span className={s.vehicle_prefixo ? "text-zinc-200" : "text-amber-300"}>
+                            {s.vehicle_prefixo ?? "⚠ não definida"}
+                          </span>
+                        </p>
                       </div>
                       <span
                         className={[
@@ -259,6 +291,31 @@ export function DejemShiftDayDrawer({
                         {dejemShiftStatusLabel(s.status)}
                       </span>
                     </div>
+
+                    {canEdit &&
+                      (s.status === "OPEN" ||
+                        s.status === "CLOSED" ||
+                        s.status === "READY_FOR_MAP") && (
+                        <label className="mt-3 block text-xs text-zinc-500">
+                          Selecionar viatura
+                          <select
+                            value={s.vehicle_id != null ? String(s.vehicle_id) : ""}
+                            disabled={busy}
+                            onChange={(e) => void handleVehicleChange(s, e.target.value)}
+                            className="mt-1 w-full rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm text-zinc-100 disabled:opacity-50"
+                          >
+                            <option value="">Sem viatura</option>
+                            {vehicleOptions.map((v) => (
+                              <option key={v.id} value={v.id}>
+                                {v.prefixo} — {v.placa} ({v.modalidade} · {v.status})
+                              </option>
+                            ))}
+                          </select>
+                          <span className="mt-1 block text-[11px] text-zinc-600">
+                            Pode ser a mesma de outras equipes (FT / DEJEM).
+                          </span>
+                        </label>
+                      )}
 
                     <div className="mt-3 flex flex-wrap gap-2">
                       <button
@@ -283,9 +340,15 @@ export function DejemShiftDayDrawer({
                             type="button"
                             disabled={busy || s.filled_slots < 1}
                             onClick={() => {
+                              if (!s.vehicle_id) {
+                                window.alert(
+                                  "Selecione uma viatura antes de fechar a escala DEJEM.",
+                                );
+                                return;
+                              }
                               if (
                                 window.confirm(
-                                  "Fechar esta escala? Ela ficará pronta para integração futura.",
+                                  "Fechar esta escala? Ela ficará pronta para integração ao Mapa Força.",
                                 )
                               ) {
                                 void onCloseShift(s.id);
@@ -418,6 +481,7 @@ export function DejemShiftDayDrawer({
               form={form}
               setForm={setForm}
               templates={templates}
+              vehicles={vehicleOptions}
               onApplyTemplate={applyTemplate}
               showStatus={false}
               busy={busy}
@@ -449,6 +513,7 @@ function ShiftForm({
   form,
   setForm,
   templates,
+  vehicles,
   onApplyTemplate,
   showStatus,
   busy,
@@ -459,6 +524,7 @@ function ShiftForm({
   form: FormState;
   setForm: (fn: (f: FormState) => FormState) => void;
   templates: DejemShiftTemplatePublic[];
+  vehicles: Vehicle[];
   onApplyTemplate: (id: string) => void;
   showStatus: boolean;
   busy: boolean;
@@ -535,6 +601,21 @@ function ShiftForm({
           />
         </label>
       </div>
+      <label className="block">
+        <span className="mb-1 block text-zinc-500">Viatura</span>
+        <select
+          value={form.vehicle_id}
+          onChange={(e) => setForm((f) => ({ ...f, vehicle_id: e.target.value }))}
+          className="w-full rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-zinc-100"
+        >
+          <option value="">Sem viatura</option>
+          {vehicles.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.prefixo} — {v.placa} ({v.modalidade})
+            </option>
+          ))}
+        </select>
+      </label>
       {showStatus && (
         <label className="block">
           <span className="mb-1 block text-zinc-500">Status</span>

@@ -189,6 +189,11 @@ class DejemShift(Base):
     created_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     closed_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    vehicle_id: Mapped[int | None] = mapped_column(
+        ForeignKey("vehicles.id"),
+        nullable=True,
+        index=True,
+    )
     service_scale_id: Mapped[int | None] = mapped_column(
         ForeignKey("service_scales.id", ondelete="SET NULL"),
         nullable=True,
@@ -212,6 +217,7 @@ class DejemShift(Base):
     created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_id])
     closed_by: Mapped["User | None"] = relationship("User", foreign_keys=[closed_by_id])
     integrated_by: Mapped["User | None"] = relationship("User", foreign_keys=[integrated_by_id])
+    vehicle: Mapped["Vehicle | None"] = relationship("Vehicle", foreign_keys=[vehicle_id])
     participants: Mapped[list["DejemParticipant"]] = relationship(
         "DejemParticipant",
         back_populates="shift",

@@ -16,6 +16,7 @@ from models.dejem import (
     DejemShiftType,
 )
 from models.user import User
+from models.vehicle import Vehicle, VehicleStatus
 from repositories.dejem_repository import (
     DejemAllocationRepository,
     DejemMonthRepository,
@@ -57,6 +58,7 @@ def _intervals_overlap(a_start: time, a_end: time, b_start: time, b_end: time) -
 
 
 def _shift_to_public(row: DejemShift, filled: int) -> DejemShiftPublic:
+    vehicle = row.vehicle
     return DejemShiftPublic(
         id=row.id,
         month_id=row.month_id,
@@ -68,6 +70,8 @@ def _shift_to_public(row: DejemShift, filled: int) -> DejemShiftPublic:
         filled_slots=filled,
         available_slots=max(0, row.capacity - filled),
         status=row.status,  # type: ignore[arg-type]
+        vehicle_id=row.vehicle_id,
+        vehicle_prefixo=vehicle.prefixo if vehicle else None,
         created_by_id=row.created_by_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -93,6 +97,25 @@ def _ensure_month_allows_shifts(month: DejemMonth) -> None:
 def _validate_capacity(capacity: int) -> None:
     if capacity < 0:
         raise DejemError("A capacidade não pode ser negativa.")
+
+
+# Viaturas elegíveis para DEJEM — sem exclusividade entre equipes.
+_ACTIVE_VEHICLE_STATUSES = {VehicleStatus.OPERANDO, VehicleStatus.RESERVA}
+
+
+def _resolve_vehicle_id(db: Session, vehicle_id: int | None) -> int | None:
+    """Valida viatura ativa. Não impede uso compartilhado com outras equipes."""
+    if vehicle_id is None:
+        return None
+    vehicle = db.get(Vehicle, vehicle_id)
+    if not vehicle:
+        raise DejemError("Viatura não encontrada.")
+    if vehicle.status not in _ACTIVE_VEHICLE_STATUSES:
+        raise DejemError(
+            f"Viatura {vehicle.prefixo} não está ativa "
+            f"(status {vehicle.status.value}). Use OPERANDO ou RESERVA."
+        )
+    return vehicle.id
 
 
 def _assert_no_overlap(
@@ -148,6 +171,7 @@ def create_shift(db: Session, current: User, body: DejemShiftCreate) -> DejemShi
         shift_type=shift_type,
         capacity=body.capacity,
         status=DejemShiftStatus(body.status.value),
+        vehicle_id=_resolve_vehicle_id(db, body.vehicle_id),
         created_by_id=current.id,
     )
     saved = shift_repo.add(row)
@@ -156,6 +180,7 @@ def create_shift(db: Session, current: User, body: DejemShiftCreate) -> DejemShi
         month.status = DejemMonthStatus.OPEN_SHIFTS
         month_repo.save(month)
 
+    saved = shift_repo.get_by_id(saved.id) or saved
     return _shift_to_public(saved, 0)
 
 
@@ -164,8 +189,18 @@ def update_shift(db: Session, shift_id: int, body: DejemShiftUpdate) -> DejemShi
     row = shift_repo.get_by_id(shift_id)
     if not row:
         raise DejemError("Escala DEJEM não encontrada.")
-    if row.status != DejemShiftStatus.OPEN:
-        raise DejemError("Somente escalas OPEN podem ser editadas.")
+
+    payload = body.model_dump(exclude_unset=True)
+    only_vehicle = set(payload.keys()) <= {"vehicle_id"}
+    editable_statuses = {
+        DejemShiftStatus.OPEN,
+        DejemShiftStatus.CLOSED,
+        DejemShiftStatus.READY_FOR_MAP,
+    }
+    if row.status not in editable_statuses:
+        raise DejemError("Não é possível editar escalas já integradas ou finalizadas.")
+    if row.status != DejemShiftStatus.OPEN and not only_vehicle:
+        raise DejemError("Após o fechamento, somente a viatura pode ser alterada.")
 
     month = DejemMonthRepository(db).get_by_id(row.month_id)
     if not month:
@@ -190,23 +225,29 @@ def update_shift(db: Session, shift_id: int, body: DejemShiftUpdate) -> DejemShi
             f"A capacidade não pode ser menor que as vagas já preenchidas ({filled})."
         )
 
-    _assert_no_overlap(
-        shift_repo,
-        month_id=row.month_id,
-        day=new_date,
-        shift_type=new_type,
-        start_time=new_start,
-        end_time=new_end,
-        exclude_id=row.id,
-    )
+    if not only_vehicle:
+        _assert_no_overlap(
+            shift_repo,
+            month_id=row.month_id,
+            day=new_date,
+            shift_type=new_type,
+            start_time=new_start,
+            end_time=new_end,
+            exclude_id=row.id,
+        )
+        row.date = new_date
+        row.start_time = new_start
+        row.end_time = new_end
+        row.shift_type = new_type
+        row.capacity = new_capacity
+        row.status = new_status
 
-    row.date = new_date
-    row.start_time = new_start
-    row.end_time = new_end
-    row.shift_type = new_type
-    row.capacity = new_capacity
-    row.status = new_status
+    if "vehicle_id" in payload:
+        # None explícito remove a vinculação; sem exclusividade com outras equipes.
+        row.vehicle_id = _resolve_vehicle_id(db, body.vehicle_id)
+
     saved = shift_repo.save(row)
+    saved = shift_repo.get_by_id(saved.id) or saved
     return _shift_to_public(saved, filled)
 
 

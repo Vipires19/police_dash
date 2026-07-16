@@ -1,4 +1,4 @@
-"""Testes do MessageGenerationService (fase 4.9) — somente snapshot."""
+"""Testes do MessageGenerationService — horários por equipe a partir do snapshot."""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ from services.message_generation_service import (
     member_line,
     mission_sort_key,
     resolve_operational_title,
+    resolve_team_qtr,
 )
+from services.scale_publish_pipeline import _hhmm_from_datetime, _normalize_dejem_block
 
 _BR = ZoneInfo("America/Sao_Paulo")
 
@@ -52,11 +54,46 @@ def test_mission_sort_order():
 
 
 def test_member_line_compact_patente():
-    assert member_line("1° TEN", "Carvalho") == "1TEN CARVALHO"
-    assert member_line("CB", "Angelo") == "CB ANGELO"
+    assert member_line({"patente": "1° TEN", "nome_guerra": "Carvalho"}) == "1TEN CARVALHO"
+    assert member_line({"patente": "CB", "nome_guerra": "Angelo"}) == "CB ANGELO"
+    assert (
+        member_line({"patente": "CB", "re": "123456", "nome_guerra": "Angelo"})
+        == "CB RE 123456 ANGELO"
+    )
 
 
-def test_equipes_format_and_order_from_snapshot():
+def test_resolve_team_qtr_prefers_start_end_time():
+    start, end = resolve_team_qtr(
+        {
+            "start_time": "04:55",
+            "end_time": "12:55",
+            "start_datetime": "2026-07-14T06:00:00-03:00",
+            "end_datetime": "2026-07-14T18:00:00-03:00",
+            "published_at": "2026-07-14T22:00:00-03:00",
+        }
+    )
+    assert start == "04:55"
+    assert end == "12:55"
+
+
+def test_resolve_team_qtr_falls_back_to_datetime():
+    start, end = resolve_team_qtr(
+        {
+            "start_datetime": "2026-07-14T06:00:00-03:00",
+            "end_datetime": "2026-07-14T18:00:00-03:00",
+        }
+    )
+    assert start == "06:00"
+    assert end == "18:00"
+
+
+def test_resolve_team_qtr_never_uses_published_at():
+    start, end = resolve_team_qtr({"published_at": "2026-07-14T22:00:00-03:00"})
+    assert start is None
+    assert end is None
+
+
+def test_equipes_format_independent_qtr_per_team():
     snapshot = {
         "teams": [
             {
@@ -64,19 +101,15 @@ def test_equipes_format_and_order_from_snapshot():
                 "modality": "ROCAM",
                 "mission_name": "ROCAM 1",
                 "vehicle_prefixo": None,
-                "start_datetime": "2026-07-14T06:00:00-03:00",
+                "start_time": "04:55",
+                "end_time": "12:55",
+                "start_datetime": "2026-07-14T04:55:00-03:00",
                 "members": [
                     {
                         "patente": "CB",
                         "nome_guerra": "João",
                         "assigned_vehicle_prefixo": "I-03045",
                         "display_order": 1,
-                    },
-                    {
-                        "patente": "CB",
-                        "nome_guerra": "Marcos",
-                        "assigned_vehicle_prefixo": "I-03045",
-                        "display_order": 2,
                     },
                 ],
             },
@@ -85,10 +118,11 @@ def test_equipes_format_and_order_from_snapshot():
                 "modality": "FT",
                 "mission_name": "Tático Comando",
                 "vehicle_prefixo": "I-03027",
+                "start_time": "06:00",
+                "end_time": "18:00",
                 "start_datetime": "2026-07-14T06:00:00-03:00",
                 "members": [
                     {"patente": "1° TEN", "nome_guerra": "Carvalho", "display_order": 1},
-                    {"patente": "CB", "nome_guerra": "Angelo", "display_order": 2},
                 ],
             },
         ],
@@ -97,9 +131,10 @@ def test_equipes_format_and_order_from_snapshot():
                 "shift_id": 9,
                 "title": "APOIO TÁTICO",
                 "vehicle_prefixo": "I-03061",
+                "start_time": "18:00",
+                "end_time": "06:00",
                 "members": [
                     {"patente": "CB", "nome_guerra": "Felipe", "display_order": 1},
-                    {"patente": "SD", "nome_guerra": "Lucas", "display_order": 2},
                 ],
             }
         ],
@@ -107,14 +142,12 @@ def test_equipes_format_and_order_from_snapshot():
     block = build_equipes_from_snapshot(snapshot)
     assert block.index("TÁTICO COMANDO") < block.index("ROCAM 1")
     assert block.index("ROCAM 1") < block.index("DEJEM APOIO TÁTICO")
-    assert "🚔 TÁTICO COMANDO" in block
-    assert "Viatura" in block
+    assert "*🕘 QTR* Das 06:00 às 18:00" in block
+    assert "*🕘 QTR* Das 04:55 às 12:55" in block
+    assert "*🕘 QTR* Das 18:00 às 06:00" in block
+    assert "22:00" not in block  # não usa horário de publicação
     assert "I-03027" in block
     assert "1TEN CARVALHO" in block
-    assert "I-03045" in block
-    assert "DEJEM APOIO TÁTICO" in block
-    assert "Folga" not in block
-    assert "Férias" not in block
 
 
 def test_missing_vehicle_warning():
@@ -125,14 +158,16 @@ def test_missing_vehicle_warning():
                 "modality": "FT",
                 "mission_name": "Supervisor Tático",
                 "vehicle_prefixo": None,
+                "start_time": "06:00",
+                "end_time": "18:00",
                 "members": [{"patente": "SGT", "nome_guerra": "X", "display_order": 0}],
-                "start_datetime": "2026-07-14T06:00:00-03:00",
             }
         ],
         "dejem_blocks": [],
     }
     text = build_equipes_from_snapshot(snapshot)
     assert "⚠ Viatura não definida" in text
+    assert "*🕘 QTR* Das 06:00 às 18:00" in text
 
 
 def test_observacoes_bullets():
@@ -146,7 +181,7 @@ def test_render_from_snapshot_full_message():
         "scale_date": "2026-07-14",
         "organizational_unit": OrganizationalUnit.FIRST_PLATOON.value,
         "fardamento": "5º Uniforme",
-        "published_at": datetime(2026, 7, 14, 6, 0, tzinfo=_BR).isoformat(),
+        "published_at": datetime(2026, 7, 14, 22, 0, tzinfo=_BR).isoformat(),
         "description": "Reforço ROCAM.",
         "teams": [
             {
@@ -154,7 +189,8 @@ def test_render_from_snapshot_full_message():
                 "modality": "FT",
                 "mission_name": "Tático Comando",
                 "vehicle_prefixo": "I-03027",
-                "start_datetime": "2026-07-14T06:00:00-03:00",
+                "start_time": "06:00",
+                "end_time": "18:00",
                 "members": [
                     {"patente": "CB", "nome_guerra": "Angelo", "display_order": 1},
                 ],
@@ -168,8 +204,8 @@ def test_render_from_snapshot_full_message():
     assert "📅 Dia 14 de Julho de 2026" in text
     assert "👕 Fardamento" in text
     assert "5º Uniforme" in text
-    assert "🕘 QTR" in text
-    assert "06:00hs" in text
+    assert "*🕘 QTR* Das 06:00 às 18:00" in text
+    assert "22:00" not in text
     assert "🚔 TÁTICO COMANDO" in text
     assert "• Reforço ROCAM." in text
     assert "{{" not in text
@@ -209,3 +245,12 @@ def test_apply_template_basic():
     )
     assert "COMPANHIA DE FORÇA TÁTICA" in text
     assert "🚔 FT" in text
+
+
+def test_snapshot_hhmm_helpers():
+    assert _hhmm_from_datetime(datetime(2026, 7, 14, 4, 55, tzinfo=_BR)) == "04:55"
+    block = _normalize_dejem_block(
+        {"title": "APOIO", "start_time": "18:00:00", "end_time": "06:00:00"}
+    )
+    assert block["start_time"] == "18:00"
+    assert block["end_time"] == "06:00"

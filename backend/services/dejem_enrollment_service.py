@@ -479,6 +479,11 @@ def close_shift(db: Session, current: User, shift_id: int) -> DejemShiftPublic:
     filled = shift_repo.count_filled(shift.id)
     if filled < 1:
         raise DejemError("É necessário ao menos um participante para fechar a escala.")
+    if not shift.vehicle_id:
+        raise DejemError(
+            "Selecione uma viatura antes de fechar a escala DEJEM "
+            "(necessária para a mensagem operacional / Mapa Força)."
+        )
 
     shift.status = DejemShiftStatus.CLOSED
     shift.closed_at = datetime.now(tz=_BR)
@@ -495,8 +500,7 @@ def close_shift(db: Session, current: User, shift_id: int) -> DejemShiftPublic:
         details=f"participantes={filled}",
     )
     db.commit()
-    db.refresh(shift)
-
+    shift = shift_repo.get_by_id(shift.id) or shift
     return _shift_to_public(shift, filled)
 
 

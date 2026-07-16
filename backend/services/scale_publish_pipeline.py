@@ -189,6 +189,44 @@ def _validate_dejem_officer_conflicts(db: Session, scale: ServiceScale) -> list[
     return errors
 
 
+def _hhmm_from_datetime(value: datetime) -> str:
+    """Horário operacional local (America/Sao_Paulo) no formato HH:MM."""
+    local = value.astimezone(_BR) if value.tzinfo is not None else value
+    return f"{local.hour:02d}:{local.minute:02d}"
+
+
+def _hhmm_from_any(value: Any) -> str | None:
+    """Normaliza time / datetime / 'HH:MM[:SS]' para 'HH:MM'."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return _hhmm_from_datetime(value)
+    if hasattr(value, "hour") and hasattr(value, "minute") and not isinstance(value, str):
+        return f"{int(value.hour):02d}:{int(value.minute):02d}"
+    text = str(value).strip()
+    if "T" in text:
+        try:
+            return _hhmm_from_datetime(datetime.fromisoformat(text.replace("Z", "+00:00")))
+        except ValueError:
+            return None
+    # "06:00:00" | "06:00"
+    parts = text.split(":")
+    if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+        return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+    return None
+
+
+def _normalize_dejem_block(block: Any) -> dict[str, Any]:
+    data = block.model_dump(mode="json") if hasattr(block, "model_dump") else dict(block)
+    start = _hhmm_from_any(data.get("start_time"))
+    end = _hhmm_from_any(data.get("end_time"))
+    if start:
+        data["start_time"] = start
+    if end:
+        data["end_time"] = end
+    return data
+
+
 def _build_snapshot(
     scale: ServiceScale,
     dejem_blocks: list[Any],
@@ -198,6 +236,8 @@ def _build_snapshot(
 ) -> dict[str, Any]:
     teams_payload = []
     for team in scale.teams:
+        start_time = _hhmm_from_datetime(team.start_datetime)
+        end_time = _hhmm_from_datetime(team.end_datetime)
         teams_payload.append(
             {
                 "id": team.id,
@@ -208,6 +248,9 @@ def _build_snapshot(
                 "vehicle_prefixo": team.vehicle.prefixo if team.vehicle else None,
                 "start_datetime": team.start_datetime.isoformat(),
                 "end_datetime": team.end_datetime.isoformat(),
+                # Horário operacional da equipe (fonte da verdade para QTR na mensagem)
+                "start_time": start_time,
+                "end_time": end_time,
                 "members": [
                     {
                         "user_id": m.user_id,
@@ -240,10 +283,7 @@ def _build_snapshot(
         "organizational_unit": unit,
         "published_at": published_at.isoformat() if published_at else None,
         "teams": teams_payload,
-        "dejem_blocks": [
-            b.model_dump(mode="json") if hasattr(b, "model_dump") else b
-            for b in dejem_blocks
-        ],
+        "dejem_blocks": [_normalize_dejem_block(b) for b in dejem_blocks],
     }
 
 
