@@ -82,6 +82,7 @@ def _active_members(shift: DejemShift) -> list[DejemMapMember]:
                 user_id=u.id,
                 patente=u.patente or "",
                 nome_guerra=u.nome_guerra or "",
+                re=getattr(u, "re", None) or None,
                 display_order=getattr(u, "display_order", 0) or 0,
             )
         )
@@ -101,6 +102,7 @@ def build_map_blocks(
         if not members:
             continue
         vehicle = shift.vehicle
+        prefixo = vehicle.prefixo if vehicle else None
         blocks.append(
             DejemMapBlock(
                 shift_id=shift.id,
@@ -109,7 +111,8 @@ def build_map_blocks(
                 start_time=shift.start_time,
                 end_time=shift.end_time,
                 status=shift.status,  # type: ignore[arg-type]
-                vehicle_prefixo=vehicle.prefixo if vehicle else None,
+                vehicle_id=shift.vehicle_id,
+                vehicle_prefixo=prefixo,
                 members=members,
             )
         )

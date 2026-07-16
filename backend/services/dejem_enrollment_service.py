@@ -59,6 +59,32 @@ def _assert_shift_open(shift: DejemShift) -> None:
         raise DejemError("A escala não está aberta para inscrições.")
 
 
+_ADMIN_PARTICIPANT_STATUSES = {
+    DejemShiftStatus.OPEN,
+    DejemShiftStatus.CLOSED,
+    DejemShiftStatus.READY_FOR_MAP,
+    DejemShiftStatus.INTEGRATED,
+}
+
+
+def _assert_shift_admin_editable(shift: DejemShift) -> None:
+    """Admin pode gerenciar participantes até a publicação definitiva (FINISHED)."""
+    if shift.status not in _ADMIN_PARTICIPANT_STATUSES:
+        raise DejemError("Não é possível alterar participantes em escala finalizada.")
+
+
+def _sync_map_artifacts(db: Session, shift: DejemShift, actor: User) -> None:
+    if shift.status not in {
+        DejemShiftStatus.CLOSED,
+        DejemShiftStatus.READY_FOR_MAP,
+        DejemShiftStatus.INTEGRATED,
+    }:
+        return
+    from services.dejem_operational_sync import refresh_operational_artifacts_for_day
+
+    refresh_operational_artifacts_for_day(db, shift.date, actor=actor)
+
+
 def _assert_capacity(repo: DejemShiftRepository, shift: DejemShift) -> None:
     filled = repo.count_filled(shift.id)
     if filled >= shift.capacity:
@@ -353,7 +379,7 @@ def admin_add_participant(
     shift = shift_repo.get_by_id(shift_id)
     if not shift:
         raise DejemError("Escala não encontrada.")
-    _assert_shift_open(shift)
+    _assert_shift_admin_editable(shift)
     _assert_capacity(shift_repo, shift)
 
     target = db.get(User, body.user_id)
@@ -416,6 +442,7 @@ def admin_add_participant(
         details=f"tipo={ptype.value}",
     )
     part_repo.commit()
+    _sync_map_artifacts(db, shift, current)
     return _participant_to_result(row, remaining)
 
 
@@ -432,7 +459,7 @@ def admin_remove_participant(
     shift = shift_repo.get_by_id(shift_id)
     if not shift:
         raise DejemError("Escala não encontrada.")
-    _assert_shift_open(shift)
+    _assert_shift_admin_editable(shift)
 
     row = part_repo.get_by_shift_and_user(shift.id, user_id)
     if not row or row.status == ParticipantStatus.CANCELLED:
@@ -465,6 +492,7 @@ def admin_remove_participant(
         details="remoção administrativa",
     )
     part_repo.commit()
+    _sync_map_artifacts(db, shift, current)
     return _participant_to_result(row, remaining)
 
 

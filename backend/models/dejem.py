@@ -163,6 +163,15 @@ class DejemAllocation(Base):
 
 class DejemShift(Base):
     __tablename__ = "dejem_shifts"
+    __table_args__ = (
+        UniqueConstraint(
+            "month_id",
+            "date",
+            "start_time",
+            "end_time",
+            name="uq_dejem_shifts_month_date_start_end",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     month_id: Mapped[int] = mapped_column(

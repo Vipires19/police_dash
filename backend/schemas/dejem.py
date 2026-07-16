@@ -293,6 +293,7 @@ class DejemMapMember(BaseModel):
     user_id: int
     patente: str
     nome_guerra: str
+    re: str | None = None
     display_order: int = 0
 
 
@@ -303,6 +304,7 @@ class DejemMapBlock(BaseModel):
     start_time: Time
     end_time: Time
     status: DejemShiftStatusEnum
+    vehicle_id: int | None = None
     vehicle_prefixo: str | None = None
     members: list[DejemMapMember]
 

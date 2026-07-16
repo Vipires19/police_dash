@@ -224,6 +224,12 @@ def _normalize_dejem_block(block: Any) -> dict[str, Any]:
         data["start_time"] = start
     if end:
         data["end_time"] = end
+    # Garante chave explícita para a mensagem (mesmo quando None).
+    if "vehicle_prefixo" not in data:
+        data["vehicle_prefixo"] = None
+    prefix = data.get("vehicle_prefixo")
+    if prefix is not None:
+        data["vehicle_prefixo"] = str(prefix).strip() or None
     return data
 
 
@@ -491,11 +497,17 @@ def _inject_version_line(export_text: str, version_number: int, published_at: da
         f"{local.hour:02d}:{local.minute:02d}"
     )
     lines = export_text.splitlines()
-    # Após linha de QTR (template: "🕘 QTR …" ou legado "Qtr:")
+    # Após o bloco de fardamento (QTR global foi removido do template).
     for i, line in enumerate(lines):
         upper = line.upper()
-        if "QTR" in upper or line.startswith("Qtr:"):
-            lines.insert(i + 1, stamp)
+        if "FARDAMENTO" in upper:
+            # Insere após a linha do valor do fardamento (próxima não vazia) ou logo abaixo.
+            insert_at = i + 1
+            while insert_at < len(lines) and lines[insert_at].strip() == "":
+                insert_at += 1
+            if insert_at < len(lines) and "━" not in lines[insert_at] and "EQUIPE" not in lines[insert_at].upper():
+                insert_at += 1
+            lines.insert(insert_at, stamp)
             break
     else:
         lines.insert(0, stamp)

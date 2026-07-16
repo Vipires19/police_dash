@@ -189,15 +189,30 @@ export function DejemShiftDayDrawer({
 
   const submitUpdate = async () => {
     if (editingId == null) return;
+    const editing = shifts.find((x) => x.id === editingId);
+    if (
+      editing &&
+      (editing.status === "INTEGRATED" ||
+        editing.status === "CLOSED" ||
+        editing.status === "READY_FOR_MAP")
+    ) {
+      const ok = window.confirm(
+        "Esta alteração atualizará automaticamente o Mapa Força.",
+      );
+      if (!ok) return;
+    }
     try {
-      await onUpdate(editingId, {
+      const payload: DejemShiftUpdatePayload = {
         start_time: form.start_time.length === 5 ? `${form.start_time}:00` : form.start_time,
         end_time: form.end_time.length === 5 ? `${form.end_time}:00` : form.end_time,
         shift_type: form.shift_type,
         capacity: form.capacity,
-        status: form.status,
         vehicle_id: form.vehicle_id ? Number(form.vehicle_id) : null,
-      });
+      };
+      if (editing?.status === "OPEN") {
+        payload.status = form.status;
+      }
+      await onUpdate(editingId, payload);
       setEditingId(null);
     } catch {
       /* página */
@@ -205,6 +220,16 @@ export function DejemShiftDayDrawer({
   };
 
   const handleVehicleChange = async (shift: DejemShiftPublic, value: string) => {
+    if (
+      shift.status === "INTEGRATED" ||
+      shift.status === "CLOSED" ||
+      shift.status === "READY_FOR_MAP"
+    ) {
+      const ok = window.confirm(
+        "Esta alteração atualizará automaticamente o Mapa Força.",
+      );
+      if (!ok) return;
+    }
     const vehicleId = value ? Number(value) : null;
     try {
       await onUpdate(shift.id, { vehicle_id: vehicleId });
@@ -212,6 +237,12 @@ export function DejemShiftDayDrawer({
       /* página */
     }
   };
+
+  const isAdminEditable = (status: DejemShiftStatus) =>
+    status === "OPEN" ||
+    status === "CLOSED" ||
+    status === "READY_FOR_MAP" ||
+    status === "INTEGRATED";
 
   const shifts = detail?.shifts ?? [];
 
@@ -252,18 +283,26 @@ export function DejemShiftDayDrawer({
             return (
               <div key={s.id} className="rounded-xl border border-zinc-800 bg-zinc-900/40 px-4 py-3">
                 {editingId === s.id ? (
-                  <ShiftForm
-                    form={form}
-                    setForm={setForm}
-                    templates={templates}
-                    vehicles={vehicleOptions}
-                    onApplyTemplate={applyTemplate}
-                    showStatus
-                    busy={busy}
-                    onCancel={() => setEditingId(null)}
-                    onSubmit={() => void submitUpdate()}
-                    submitLabel="Salvar"
-                  />
+                  <>
+                    {s.status === "INTEGRATED" && (
+                      <p className="mb-3 rounded-lg border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                        Esta alteração atualizará automaticamente o Mapa Força.
+                      </p>
+                    )}
+                    <ShiftForm
+                      form={form}
+                      setForm={setForm}
+                      templates={templates}
+                      vehicles={vehicleOptions}
+                      onApplyTemplate={applyTemplate}
+                      showStatus={s.status === "OPEN"}
+                      lockStatus={s.status !== "OPEN"}
+                      busy={busy}
+                      onCancel={() => setEditingId(null)}
+                      onSubmit={() => void submitUpdate()}
+                      submitLabel="Salvar"
+                    />
+                  </>
                 ) : (
                   <>
                     <div className="flex items-start justify-between gap-3">
@@ -292,10 +331,7 @@ export function DejemShiftDayDrawer({
                       </span>
                     </div>
 
-                    {canEdit &&
-                      (s.status === "OPEN" ||
-                        s.status === "CLOSED" ||
-                        s.status === "READY_FOR_MAP") && (
+                    {canEdit && isAdminEditable(s.status) && (
                         <label className="mt-3 block text-xs text-zinc-500">
                           Selecionar viatura
                           <select
@@ -314,6 +350,11 @@ export function DejemShiftDayDrawer({
                           <span className="mt-1 block text-[11px] text-zinc-600">
                             Pode ser a mesma de outras equipes (FT / DEJEM).
                           </span>
+                          {s.status === "INTEGRATED" && (
+                            <span className="mt-1 block text-[11px] text-amber-300/90">
+                              Esta alteração atualizará automaticamente o Mapa Força.
+                            </span>
+                          )}
                         </label>
                       )}
 
@@ -326,16 +367,18 @@ export function DejemShiftDayDrawer({
                       >
                         {expanded ? "Ocultar participantes" : "Participantes"}
                       </button>
+                      {canEdit && isAdminEditable(s.status) && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => startEdit(s)}
+                          className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
+                        >
+                          Editar
+                        </button>
+                      )}
                       {canEdit && s.status === "OPEN" && (
                         <>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => startEdit(s)}
-                            className="rounded-md border border-zinc-700 px-2.5 py-1 text-xs text-zinc-300 hover:bg-zinc-900 disabled:opacity-50"
-                          >
-                            Editar
-                          </button>
                           <button
                             type="button"
                             disabled={busy || s.filled_slots < 1}
@@ -396,12 +439,18 @@ export function DejemShiftDayDrawer({
                                     {new Date(p.created_at).toLocaleString("pt-BR")}
                                   </p>
                                 </div>
-                                {canEdit && s.status === "OPEN" && (
+                                {canEdit && isAdminEditable(s.status) && (
                                   <button
                                     type="button"
                                     disabled={busy}
                                     onClick={() => {
-                                      if (window.confirm("Remover este participante?")) {
+                                      const warn =
+                                        s.status === "INTEGRATED" ||
+                                        s.status === "CLOSED" ||
+                                        s.status === "READY_FOR_MAP"
+                                          ? "Esta alteração atualizará automaticamente o Mapa Força.\n\nRemover este participante?"
+                                          : "Remover este participante?";
+                                      if (window.confirm(warn)) {
                                         void onRemoveParticipant(s.id, p.user_id);
                                       }
                                     }}
@@ -415,11 +464,16 @@ export function DejemShiftDayDrawer({
                           </ul>
                         )}
 
-                        {canEdit && s.status === "OPEN" && (
+                        {canEdit && isAdminEditable(s.status) && (
                           <div className="space-y-2 rounded-lg border border-zinc-800 px-3 py-3">
                             <p className="text-xs font-medium text-zinc-300">
                               Adicionar manualmente
                             </p>
+                            {s.status === "INTEGRATED" && (
+                              <p className="text-[11px] text-amber-300/90">
+                                Esta alteração atualizará automaticamente o Mapa Força.
+                              </p>
+                            )}
                             <select
                               value={addUserId}
                               onChange={(e) => setAddUserId(e.target.value)}
@@ -451,10 +505,28 @@ export function DejemShiftDayDrawer({
                               type="button"
                               disabled={busy || !addUserId}
                               onClick={() => {
-                                void onAddParticipant(s.id, Number(addUserId), addType).then(() => {
-                                  setAddUserId("");
-                                  setAddType("NORMAL");
-                                });
+                                const run = () =>
+                                  void onAddParticipant(s.id, Number(addUserId), addType).then(
+                                    () => {
+                                      setAddUserId("");
+                                      setAddType("NORMAL");
+                                    },
+                                  );
+                                if (
+                                  s.status === "INTEGRATED" ||
+                                  s.status === "CLOSED" ||
+                                  s.status === "READY_FOR_MAP"
+                                ) {
+                                  if (
+                                    window.confirm(
+                                      "Esta alteração atualizará automaticamente o Mapa Força.",
+                                    )
+                                  ) {
+                                    run();
+                                  }
+                                  return;
+                                }
+                                run();
                               }}
                               className="w-full rounded-md bg-zinc-100 px-2 py-1.5 text-xs font-medium text-zinc-950 hover:bg-white disabled:opacity-50"
                             >
@@ -516,6 +588,7 @@ function ShiftForm({
   vehicles,
   onApplyTemplate,
   showStatus,
+  lockStatus = false,
   busy,
   onCancel,
   onSubmit,
@@ -527,6 +600,7 @@ function ShiftForm({
   vehicles: Vehicle[];
   onApplyTemplate: (id: string) => void;
   showStatus: boolean;
+  lockStatus?: boolean;
   busy: boolean;
   onCancel: () => void;
   onSubmit: () => void;
@@ -616,7 +690,7 @@ function ShiftForm({
           ))}
         </select>
       </label>
-      {showStatus && (
+      {showStatus && !lockStatus && (
         <label className="block">
           <span className="mb-1 block text-zinc-500">Status</span>
           <select
@@ -629,10 +703,14 @@ function ShiftForm({
             <option value="OPEN">Aberta</option>
             <option value="CLOSED">Fechada</option>
             <option value="READY_FOR_MAP">Pronta p/ mapa</option>
-            <option value="INTEGRATED">No Mapa Força</option>
             <option value="FINISHED">Finalizada</option>
           </select>
         </label>
+      )}
+      {lockStatus && (
+        <p className="text-xs text-zinc-500">
+          Status: {dejemShiftStatusLabel(form.status)} (definido pelo fluxo operacional)
+        </p>
       )}
       <div className="flex justify-end gap-2 pt-1">
         <button

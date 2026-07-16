@@ -480,11 +480,11 @@ def get_shift(
 def update_shift(
     shift_id: int,
     body: DejemShiftUpdate,
-    _: User = Depends(require_dejem_shift_editor),
+    current: User = Depends(require_dejem_shift_editor),
     db: Session = Depends(get_db),
 ) -> DejemShiftPublic:
     try:
-        return shift_svc.update_shift(db, shift_id, body)
+        return shift_svc.update_shift(db, shift_id, body, actor=current)
     except DejemError as e:
         raise _http_error(e) from e
 

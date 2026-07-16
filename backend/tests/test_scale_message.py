@@ -141,13 +141,47 @@ def test_equipes_format_independent_qtr_per_team():
     }
     block = build_equipes_from_snapshot(snapshot)
     assert block.index("TÁTICO COMANDO") < block.index("ROCAM 1")
-    assert block.index("ROCAM 1") < block.index("DEJEM APOIO TÁTICO")
+    assert block.index("ROCAM 1") < block.index("APOIO TÁTICO")
+    assert "*🚔 APOIO TÁTICO*" in block
+    assert "*I-03061*" in block
     assert "*🕘 QTR* Das 06:00 às 18:00" in block
     assert "*🕘 QTR* Das 04:55 às 12:55" in block
     assert "*🕘 QTR* Das 18:00 às 06:00" in block
     assert "22:00" not in block  # não usa horário de publicação
     assert "I-03027" in block
     assert "1TEN CARVALHO" in block
+
+
+def test_render_has_no_global_qtr_block():
+    snapshot = {
+        "scale_id": 1,
+        "scale_date": "2026-07-16",
+        "organizational_unit": OrganizationalUnit.FIRST_PLATOON.value,
+        "fardamento": "5º Uniforme",
+        "published_at": datetime(2026, 7, 16, 22, 0, tzinfo=_BR).isoformat(),
+        "description": None,
+        "teams": [],
+        "dejem_blocks": [
+            {
+                "shift_id": 1,
+                "title": "APOIO TÁTICO",
+                "vehicle_prefixo": "I-03024",
+                "start_time": "04:55",
+                "end_time": "12:55",
+                "members": [
+                    {"patente": "CB", "nome_guerra": "Silva", "display_order": 1},
+                ],
+            }
+        ],
+    }
+    text = MessageGenerationService(DEFAULT_TEMPLATE_BODY).render_from_snapshot(snapshot)
+    fard_idx = text.index("5º Uniforme")
+    team_idx = text.index("*🚔 APOIO TÁTICO*")
+    between = text[fard_idx:team_idx]
+    assert "QTR" not in between
+    assert text.count("*🕘 QTR*") == 1
+    assert "*I-03024*" in text
+    assert "*🕘 QTR* Das 04:55 às 12:55" in text
 
 
 def test_missing_vehicle_warning():

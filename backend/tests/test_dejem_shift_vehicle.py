@@ -58,3 +58,46 @@ def test_resolve_vehicle_none_ok():
 
 def test_map_block_title_ft():
     assert map_block_title(DejemShiftType.FT) == "APOIO TÁTICO"
+
+
+def test_assert_unique_timeslot_message():
+    from datetime import date
+
+    from services.dejem_service import DejemError
+    from services.dejem_shift_service import _assert_unique_timeslot
+
+    existing = SimpleNamespace(id=9, start_time=time(4, 55), end_time=time(12, 55))
+    repo = SimpleNamespace(
+        find_by_date_and_times=lambda *_a, **_k: existing,
+    )
+    with pytest.raises(DejemError) as exc:
+        _assert_unique_timeslot(
+            repo,  # type: ignore[arg-type]
+            month_id=1,
+            day=date(2026, 7, 16),
+            start_time=time(4, 55),
+            end_time=time(12, 55),
+        )
+    assert "mesmo horário" in str(exc.value)
+
+
+def test_dejem_block_vehicle_reaches_message():
+    from services.message_generation_service import build_equipes_from_snapshot
+    from services.scale_publish_pipeline import _normalize_dejem_block
+
+    raw = {
+        "shift_id": 1,
+        "title": "APOIO TÁTICO",
+        "vehicle_id": 10,
+        "vehicle_prefixo": "I-03024",
+        "start_time": "04:55:00",
+        "end_time": "12:55:00",
+        "members": [{"patente": "CB", "nome_guerra": "X", "display_order": 0}],
+    }
+    block = _normalize_dejem_block(raw)
+    assert block["vehicle_prefixo"] == "I-03024"
+    assert block["start_time"] == "04:55"
+    text = build_equipes_from_snapshot({"teams": [], "dejem_blocks": [block]})
+    assert "*🚔 APOIO TÁTICO*" in text
+    assert "*I-03024*" in text
+    assert "*🕘 QTR* Das 04:55 às 12:55" in text

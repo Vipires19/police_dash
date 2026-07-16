@@ -131,11 +131,15 @@ def consolidate_snapshot(
 
     Não altera dados dos módulos origem.
     """
-    # DEJEM: consolidação oficial só CLOSED (+ INTEGRATED já incorporadas, se houver)
+    # DEJEM no snapshot: fechadas, prontas p/ mapa e já integradas
     dejem_blocks = dejem_map.build_map_blocks(
         db,
         scale.scale_date,
-        statuses={DejemShiftStatus.CLOSED, DejemShiftStatus.INTEGRATED},
+        statuses={
+            DejemShiftStatus.CLOSED,
+            DejemShiftStatus.READY_FOR_MAP,
+            DejemShiftStatus.INTEGRATED,
+        },
     )
     open_dejem = dejem_map.list_shifts_for_date(
         db, scale.scale_date, statuses={DejemShiftStatus.OPEN}

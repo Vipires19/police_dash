@@ -298,7 +298,8 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
 
     for block in snapshot.get("dejem_blocks") or []:
         title = str(block.get("title") or "DEJEM").strip()
-        label = title.upper() if title.upper().startswith("DEJEM") else f"DEJEM {title}".upper()
+        # Título do mapa (APOIO TÁTICO / ROCAM EXTRA / DEJEM) — sem prefixo extra.
+        label = title.upper()
         members = list(block.get("members") or [])
         members.sort(
             key=lambda m: (
@@ -311,7 +312,7 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
         lines.extend(
             _format_team_block(
                 label=label,
-                vehicle=str(vehicle) if vehicle else None,
+                vehicle=str(vehicle).strip() if vehicle else None,
                 start=start,
                 end=end,
                 members=members,

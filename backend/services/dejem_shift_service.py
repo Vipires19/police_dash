@@ -38,25 +38,6 @@ from schemas.dejem import (
 from services.dejem_service import DejemError
 
 
-def _time_to_minutes(t: time) -> int:
-    return t.hour * 60 + t.minute
-
-
-def _interval_bounds(start: time, end: time) -> tuple[int, int]:
-    """Retorna [start, end) em minutos; se overnight, end += 24h."""
-    s = _time_to_minutes(start)
-    e = _time_to_minutes(end)
-    if e <= s:
-        e += 24 * 60
-    return s, e
-
-
-def _intervals_overlap(a_start: time, a_end: time, b_start: time, b_end: time) -> bool:
-    a0, a1 = _interval_bounds(a_start, a_end)
-    b0, b1 = _interval_bounds(b_start, b_end)
-    return a0 < b1 and b0 < a1
-
-
 def _shift_to_public(row: DejemShift, filled: int) -> DejemShiftPublic:
     vehicle = row.vehicle
     return DejemShiftPublic(
@@ -118,23 +99,45 @@ def _resolve_vehicle_id(db: Session, vehicle_id: int | None) -> int | None:
     return vehicle.id
 
 
-def _assert_no_overlap(
+def _assert_unique_timeslot(
     repo: DejemShiftRepository,
     *,
     month_id: int,
     day: date,
-    shift_type: DejemShiftType,
     start_time: time,
     end_time: time,
     exclude_id: int | None = None,
 ) -> None:
-    others = repo.list_same_type_on_date(month_id, day, shift_type, exclude_id=exclude_id)
-    for other in others:
-        if _intervals_overlap(start_time, end_time, other.start_time, other.end_time):
-            raise DejemError(
-                f"Horário sobreposto com outra escala {shift_type.value} no mesmo dia "
-                f"({other.start_time.strftime('%H:%M')}–{other.end_time.strftime('%H:%M')})."
-            )
+    """Unicidade: (data + horário inicial + horário final) no mesmo mês DEJEM."""
+    existing = repo.find_by_date_and_times(
+        month_id,
+        day,
+        start_time,
+        end_time,
+        exclude_id=exclude_id,
+    )
+    if existing is not None:
+        raise DejemError(
+            "Já existe uma escala DEJEM neste dia com o mesmo horário "
+            f"({start_time.strftime('%H:%M')}–{end_time.strftime('%H:%M')})."
+        )
+
+
+# Status em que o admin pode editar campos operacionais (inclui No Mapa Força).
+_ADMIN_EDITABLE_STATUSES = {
+    DejemShiftStatus.OPEN,
+    DejemShiftStatus.CLOSED,
+    DejemShiftStatus.READY_FOR_MAP,
+    DejemShiftStatus.INTEGRATED,
+}
+
+
+def _sync_after_operational_edit(db: Session, day: date, actor: User | None) -> None:
+    if actor is None:
+        return
+    from services.dejem_operational_sync import refresh_operational_artifacts_for_day
+
+    refresh_operational_artifacts_for_day(db, day, actor=actor)
 
 
 # --- Shifts CRUD ---
@@ -154,11 +157,10 @@ def create_shift(db: Session, current: User, body: DejemShiftCreate) -> DejemShi
 
     shift_type = DejemShiftType(body.shift_type.value)
     shift_repo = DejemShiftRepository(db)
-    _assert_no_overlap(
+    _assert_unique_timeslot(
         shift_repo,
         month_id=month.id,
         day=body.date,
-        shift_type=shift_type,
         start_time=body.start_time,
         end_time=body.end_time,
     )
@@ -184,23 +186,20 @@ def create_shift(db: Session, current: User, body: DejemShiftCreate) -> DejemShi
     return _shift_to_public(saved, 0)
 
 
-def update_shift(db: Session, shift_id: int, body: DejemShiftUpdate) -> DejemShiftPublic:
+def update_shift(
+    db: Session,
+    shift_id: int,
+    body: DejemShiftUpdate,
+    *,
+    actor: User | None = None,
+) -> DejemShiftPublic:
     shift_repo = DejemShiftRepository(db)
     row = shift_repo.get_by_id(shift_id)
     if not row:
         raise DejemError("Escala DEJEM não encontrada.")
 
-    payload = body.model_dump(exclude_unset=True)
-    only_vehicle = set(payload.keys()) <= {"vehicle_id"}
-    editable_statuses = {
-        DejemShiftStatus.OPEN,
-        DejemShiftStatus.CLOSED,
-        DejemShiftStatus.READY_FOR_MAP,
-    }
-    if row.status not in editable_statuses:
-        raise DejemError("Não é possível editar escalas já integradas ou finalizadas.")
-    if row.status != DejemShiftStatus.OPEN and not only_vehicle:
-        raise DejemError("Após o fechamento, somente a viatura pode ser alterada.")
+    if row.status not in _ADMIN_EDITABLE_STATUSES:
+        raise DejemError("Não é possível editar escalas finalizadas.")
 
     month = DejemMonthRepository(db).get_by_id(row.month_id)
     if not month:
@@ -208,12 +207,31 @@ def update_shift(db: Session, shift_id: int, body: DejemShiftUpdate) -> DejemShi
     if month.status == DejemMonthStatus.FINISHED:
         raise DejemError("Não é possível editar escalas de um mês finalizado.")
 
+    payload = body.model_dump(exclude_unset=True)
+    was_integrated = row.status == DejemShiftStatus.INTEGRATED
+    original_date = row.date
+
     new_date = body.date if body.date is not None else row.date
     new_start = body.start_time if body.start_time is not None else row.start_time
     new_end = body.end_time if body.end_time is not None else row.end_time
     new_type = DejemShiftType(body.shift_type.value) if body.shift_type is not None else row.shift_type
     new_capacity = body.capacity if body.capacity is not None else row.capacity
-    new_status = DejemShiftStatus(body.status.value) if body.status is not None else row.status
+    # Status INTEGRATED/CLOSED/READY não muda via formulário acidentalmente para OPEN.
+    new_status = row.status
+    if body.status is not None:
+        requested = DejemShiftStatus(body.status.value)
+        if row.status == DejemShiftStatus.OPEN:
+            new_status = requested
+        elif requested == row.status:
+            new_status = requested
+        elif requested == DejemShiftStatus.FINISHED:
+            raise DejemError("Use o fluxo operacional para finalizar a escala.")
+        elif row.status == DejemShiftStatus.INTEGRATED and requested != DejemShiftStatus.INTEGRATED:
+            raise DejemError(
+                "Escala no Mapa Força: o status só muda ao despublicar a Escala Operacional."
+            )
+        else:
+            new_status = requested
 
     if new_date.year != month.year or new_date.month != month.month:
         raise DejemError("A data da escala deve pertencer ao mês DEJEM selecionado.")
@@ -225,22 +243,20 @@ def update_shift(db: Session, shift_id: int, body: DejemShiftUpdate) -> DejemShi
             f"A capacidade não pode ser menor que as vagas já preenchidas ({filled})."
         )
 
-    if not only_vehicle:
-        _assert_no_overlap(
-            shift_repo,
-            month_id=row.month_id,
-            day=new_date,
-            shift_type=new_type,
-            start_time=new_start,
-            end_time=new_end,
-            exclude_id=row.id,
-        )
-        row.date = new_date
-        row.start_time = new_start
-        row.end_time = new_end
-        row.shift_type = new_type
-        row.capacity = new_capacity
-        row.status = new_status
+    _assert_unique_timeslot(
+        shift_repo,
+        month_id=row.month_id,
+        day=new_date,
+        start_time=new_start,
+        end_time=new_end,
+        exclude_id=row.id,
+    )
+    row.date = new_date
+    row.start_time = new_start
+    row.end_time = new_end
+    row.shift_type = new_type
+    row.capacity = new_capacity
+    row.status = new_status
 
     if "vehicle_id" in payload:
         # None explícito remove a vinculação; sem exclusividade com outras equipes.
@@ -248,6 +264,17 @@ def update_shift(db: Session, shift_id: int, body: DejemShiftUpdate) -> DejemShi
 
     saved = shift_repo.save(row)
     saved = shift_repo.get_by_id(saved.id) or saved
+
+    # Após fechamento / integração: sincroniza Mapa Força → Snapshot → Mensagem.
+    if was_integrated or saved.status in {
+        DejemShiftStatus.CLOSED,
+        DejemShiftStatus.READY_FOR_MAP,
+        DejemShiftStatus.INTEGRATED,
+    }:
+        _sync_after_operational_edit(db, saved.date, actor)
+        if original_date != saved.date:
+            _sync_after_operational_edit(db, original_date, actor)
+
     return _shift_to_public(saved, filled)
 
 

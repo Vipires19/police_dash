@@ -207,6 +207,7 @@ class DejemShiftRepository:
         *,
         exclude_id: int | None = None,
     ) -> list[DejemShift]:
+        """Legado: listagem por tipo no dia (útil para relatórios)."""
         stmt = select(DejemShift).where(
             DejemShift.month_id == month_id,
             DejemShift.date == day,
@@ -215,6 +216,26 @@ class DejemShiftRepository:
         if exclude_id is not None:
             stmt = stmt.where(DejemShift.id != exclude_id)
         return list(self.db.scalars(stmt).all())
+
+    def find_by_date_and_times(
+        self,
+        month_id: int,
+        day: date,
+        start_time: time,
+        end_time: time,
+        *,
+        exclude_id: int | None = None,
+    ) -> DejemShift | None:
+        """Unicidade operacional: (mês, data, início, fim)."""
+        stmt = select(DejemShift).where(
+            DejemShift.month_id == month_id,
+            DejemShift.date == day,
+            DejemShift.start_time == start_time,
+            DejemShift.end_time == end_time,
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(DejemShift.id != exclude_id)
+        return self.db.scalars(stmt).first()
 
     def count_filled(self, shift_id: int) -> int:
         stmt = select(func.count()).select_from(DejemParticipant).where(
@@ -243,18 +264,13 @@ class DejemShiftRepository:
         self,
         month_id: int,
         day: date,
-        shift_type: DejemShiftType,
+        shift_type: DejemShiftType | None,
         start_time: time,
         end_time: time,
     ) -> DejemShift | None:
-        stmt = select(DejemShift).where(
-            DejemShift.month_id == month_id,
-            DejemShift.date == day,
-            DejemShift.shift_type == shift_type,
-            DejemShift.start_time == start_time,
-            DejemShift.end_time == end_time,
-        )
-        return self.db.scalars(stmt).first()
+        """Localiza escala pelo horário do dia. `shift_type` é opcional (legado)."""
+        _ = shift_type
+        return self.find_by_date_and_times(month_id, day, start_time, end_time)
 
     def add_flush(self, row: DejemShift) -> DejemShift:
         self.db.add(row)
