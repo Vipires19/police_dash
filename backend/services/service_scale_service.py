@@ -345,6 +345,7 @@ def build_staff_roster(db: Session, day: date) -> list[dict]:
                 "nome_guerra": u.nome_guerra,
                 "display_order": u.display_order,
                 "operational_rank": _operational_rank(u.role),
+                "organizational_unit": u.organizational_unit.value,
                 "absences": absences,
             }
         )

@@ -26,6 +26,7 @@ export interface StaffRosterEntry {
   nome_guerra: string;
   display_order: number;
   operational_rank: number;
+  organizational_unit: "FIRST_PLATOON" | "SECOND_PLATOON" | "COMPANY_ADMIN";
   absences: StaffAbsenceFlag[];
 }
 

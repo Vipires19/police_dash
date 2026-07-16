@@ -3,6 +3,7 @@ from datetime import date, datetime
 from pydantic import BaseModel, Field, model_validator
 
 from models.service_scale import ScaleLogAction, ScaleModality, ScaleStatus
+from models.user import OrganizationalUnit
 from schemas.dejem import DejemMapBlock
 
 FT_MISSION_PRESETS = ("Tático Comando", "Supervisor Tático", "Força Tática")
@@ -173,6 +174,7 @@ class StaffRosterEntry(BaseModel):
     nome_guerra: str
     display_order: int
     operational_rank: int
+    organizational_unit: OrganizationalUnit
     absences: list[StaffAbsenceFlag]
 
 

@@ -12,6 +12,12 @@ import {
   type ScaleTeamPublic,
   type StaffRosterEntry,
 } from "@/types/serviceScale";
+import {
+  ORGANIZATIONAL_UNIT_ORDER,
+  ORGANIZATIONAL_UNIT_SECTION_LABELS,
+  type OrganizationalUnit,
+} from "@/types";
+import { useAuth } from "@/hooks/AuthContext";
 import { absenceBadgeClass, absenceDisplayLabel, scaleStatusBadgeClass, scaleStatusLabel } from "./statusStyles";
 import {
   filterFtVehicles,
@@ -19,6 +25,19 @@ import {
   gatherScaleUsage,
   isUserAvailable,
 } from "./scaleAvailability";
+
+type PlatoonFilter = "ALL" | OrganizationalUnit;
+
+const COMPANY_FILTER_ROLES = new Set(["ADMIN", "CMD_TATICO"]);
+
+function defaultPlatoonFilter(role: string | undefined, unit: OrganizationalUnit | undefined): PlatoonFilter {
+  if (role && COMPANY_FILTER_ROLES.has(role)) return "ALL";
+  return unit ?? "ALL";
+}
+
+function canChangePlatoonFilter(role: string | undefined): boolean {
+  return Boolean(role && COMPANY_FILTER_ROLES.has(role));
+}
 
 function classifyAbsenceKey(kind: string, label?: string): "FOLGA" | "DS" | "FERIAS" | "LP" | "LICENCA" | "OUTROS" {
   const display = absenceDisplayLabel(kind, label);
@@ -132,6 +151,7 @@ export function ScaleDayDrawer({
   onRemoveTeam,
   onDeleteScale,
 }: Props) {
+  const { user } = useAuth();
   const scale = detail?.scale ?? null;
   const dejemBlocks = detail?.dejem_blocks ?? [];
   const [title, setTitle] = useState("");
@@ -150,6 +170,16 @@ export function ScaleDayDrawer({
   const [roCamBikes, setRoCamBikes] = useState<Record<number, number>>({});
   const [exportOpen, setExportOpen] = useState(false);
   const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
+  const [platoonFilter, setPlatoonFilter] = useState<PlatoonFilter>(() =>
+    defaultPlatoonFilter(user?.role, user?.organizational_unit),
+  );
+
+  const platoonFilterLocked = !canChangePlatoonFilter(user?.role);
+
+  useEffect(() => {
+    if (!open) return;
+    setPlatoonFilter(defaultPlatoonFilter(user?.role, user?.organizational_unit));
+  }, [open, user?.role, user?.organizational_unit]);
 
   const displayDate = useMemo(
     () =>
@@ -185,6 +215,11 @@ export function ScaleDayDrawer({
     );
     return { availableRoster: available, awayRoster: away };
   }, [detail?.staff_roster, selectedMembers]);
+
+  const filteredAvailableRoster = useMemo(() => {
+    if (platoonFilter === "ALL") return availableRoster;
+    return availableRoster.filter((s) => s.organizational_unit === platoonFilter);
+  }, [availableRoster, platoonFilter]);
 
   const rosterSummary = useMemo(
     () => buildRosterSummary(detail?.staff_roster ?? [], usage),
@@ -574,11 +609,43 @@ export function ScaleDayDrawer({
                     <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
                       Efetivo disponível
                     </p>
+                    <div className="mb-2">
+                      <label
+                        htmlFor="scale-platoon-filter"
+                        className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-zinc-500"
+                      >
+                        Pelotão
+                      </label>
+                      <select
+                        id="scale-platoon-filter"
+                        value={platoonFilter}
+                        disabled={platoonFilterLocked}
+                        onChange={(e) => setPlatoonFilter(e.target.value as PlatoonFilter)}
+                        className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs text-zinc-100 disabled:cursor-not-allowed disabled:opacity-70"
+                      >
+                        {platoonFilterLocked ? (
+                          <option value={platoonFilter}>
+                            {platoonFilter === "ALL"
+                              ? "Todos"
+                              : ORGANIZATIONAL_UNIT_SECTION_LABELS[platoonFilter]}
+                          </option>
+                        ) : (
+                          <>
+                            <option value="ALL">Todos</option>
+                            {ORGANIZATIONAL_UNIT_ORDER.map((unit) => (
+                              <option key={unit} value={unit}>
+                                {ORGANIZATIONAL_UNIT_SECTION_LABELS[unit]}
+                              </option>
+                            ))}
+                          </>
+                        )}
+                      </select>
+                    </div>
                     <ul className="max-h-40 space-y-1 overflow-y-auto">
-                      {availableRoster.length === 0 && (
+                      {filteredAvailableRoster.length === 0 && (
                         <li className="px-2 py-1 text-xs text-zinc-600">Nenhum policial disponível nesta data.</li>
                       )}
-                      {availableRoster.map((s) => {
+                      {filteredAvailableRoster.map((s) => {
                         const isAway = s.absences.length > 0;
                         const freeForTeam =
                           isUserAvailable(s.user_id, usage) || selectedMembers.includes(s.user_id);

@@ -176,10 +176,11 @@ def format_patente(patente: str) -> str:
     return re.sub(r"\s+", " ", raw)
 
 
-def member_line(member: dict[str, Any]) -> str:
+def member_line(member: dict[str, Any], *, with_assigned_vehicle: bool = False) -> str:
     """Linha do policial no padrão PM: <PATENTE> PM <RE> <NOME_GUERRA>.
 
     Consome exclusivamente campos do snapshot (nunca consulta users).
+    Com `with_assigned_vehicle=True` (ROCAM): anexa a moto do membro.
     """
     patente = format_patente(str(member.get("patente") or ""))
     re_num = str(member.get("re") or "").strip()
@@ -193,7 +194,13 @@ def member_line(member: dict[str, Any]) -> str:
         parts.append(re_num)
     if nome:
         parts.append(nome)
-    return " ".join(parts)
+    base = " ".join(parts)
+    if not with_assigned_vehicle:
+        return base
+    prefix = str(member.get("assigned_vehicle_prefixo") or "").strip()
+    if prefix:
+        return f"{base} - {prefix}"
+    return f"{base} - {_VEHICLE_MISSING}"
 
 
 def format_observacoes(description: str | None) -> str:
@@ -231,14 +238,85 @@ def mission_sort_key(mission_name: str, modality: str) -> tuple[int, str]:
 
 
 def _team_vehicle_prefixo(team: dict[str, Any]) -> str | None:
+    """Viatura da equipe (FT / Supervisor / DEJEM). Não usa moto por membro."""
     prefix = team.get("vehicle_prefixo")
-    if prefix:
-        return str(prefix)
-    for m in team.get("members") or []:
-        p = m.get("assigned_vehicle_prefixo")
-        if p:
-            return str(p)
-    return None
+    return str(prefix).strip() if prefix else None
+
+
+def _append_qtr_and_members(
+    lines: list[str],
+    *,
+    start: str | None,
+    end: str | None,
+    members: list[dict[str, Any]],
+    with_assigned_vehicle: bool,
+) -> None:
+    if start and end:
+        lines.append(f"*🕘 QTR* Das {start} às {end}")
+    lines.append("")
+    for m in members:
+        line = member_line(m, with_assigned_vehicle=with_assigned_vehicle)
+        if line:
+            lines.append(line)
+    lines.append(_TEAM_SEPARATOR)
+    lines.append("")
+
+
+class StandardTeamBlockStrategy:
+    """Renderização padrão: uma viatura da equipe + linhas sem moto individual."""
+
+    def render(
+        self,
+        *,
+        label: str,
+        start: str | None,
+        end: str | None,
+        members: list[dict[str, Any]],
+        team: dict[str, Any],
+    ) -> list[str]:
+        vehicle = _team_vehicle_prefixo(team)
+        lines = [
+            f"*🚔 {label}*",
+            f"*{vehicle if vehicle else _VEHICLE_MISSING}*",
+        ]
+        _append_qtr_and_members(
+            lines,
+            start=start,
+            end=end,
+            members=members,
+            with_assigned_vehicle=False,
+        )
+        return lines
+
+
+class RocamTeamBlockStrategy:
+    """ROCAM: sem viatura da equipe; cada policial exibe a própria moto."""
+
+    def render(
+        self,
+        *,
+        label: str,
+        start: str | None,
+        end: str | None,
+        members: list[dict[str, Any]],
+        team: dict[str, Any],
+    ) -> list[str]:
+        _ = team
+        lines = [f"*🚔 {label}*"]
+        _append_qtr_and_members(
+            lines,
+            start=start,
+            end=end,
+            members=members,
+            with_assigned_vehicle=True,
+        )
+        return lines
+
+
+def get_team_block_strategy(modality: str) -> StandardTeamBlockStrategy | RocamTeamBlockStrategy:
+    if (modality or "").upper() == "ROCAM":
+        return RocamTeamBlockStrategy()
+    return StandardTeamBlockStrategy()
 
 
 def _format_team_block(
@@ -249,26 +327,14 @@ def _format_team_block(
     end: str | None,
     members: list[dict[str, Any]],
 ) -> list[str]:
-
-    lines = [
-        f"*🚔 {label}*",
-        f"*{vehicle if vehicle else _VEHICLE_MISSING}*",
-    ]
-
-    if start and end:
-        lines.append(f"*🕘 QTR* Das {start} às {end}")
-
-    lines.append("")
-
-    for m in members:
-        line = member_line(m)
-        if line:
-            lines.append(line)
-
-    lines.append(_TEAM_SEPARATOR)
-    lines.append("")
-
-    return lines
+    """Compat: blocos DEJEM e chamadas legadas (estratégia padrão)."""
+    return StandardTeamBlockStrategy().render(
+        label=label,
+        start=start,
+        end=end,
+        members=members,
+        team={"vehicle_prefixo": vehicle},
+    )
 
 
 def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
@@ -284,7 +350,6 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
     for team in teams:
         mission = str(team.get("mission_name") or "EQUIPE").strip().upper()
         modality = str(team.get("modality") or "").upper()
-        # Demais FT e Outras: missão em maiúsculas; ROCAM idem
         if modality == "ROCAM" and not mission.startswith("ROCAM"):
             mission = f"ROCAM {mission}"
         members = list(team.get("members") or [])
@@ -295,19 +360,19 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
             )
         )
         start, end = resolve_team_qtr(team)
+        strategy = get_team_block_strategy(modality)
         lines.extend(
-            _format_team_block(
+            strategy.render(
                 label=mission,
-                vehicle=_team_vehicle_prefixo(team),
                 start=start,
                 end=end,
                 members=members,
+                team=team,
             )
         )
 
     for block in snapshot.get("dejem_blocks") or []:
         title = str(block.get("title") or "DEJEM").strip()
-        # Título do mapa (APOIO TÁTICO / ROCAM EXTRA / DEJEM) — sem prefixo extra.
         label = title.upper()
         members = list(block.get("members") or [])
         members.sort(

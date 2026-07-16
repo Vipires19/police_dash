@@ -174,11 +174,99 @@ def test_equipes_format_independent_qtr_per_team():
     assert "*🕘 QTR* Das 04:55 às 12:55" in block
     assert "*🕘 QTR* Das 18:00 às 06:00" in block
     assert "22:00" not in block  # não usa horário de publicação
-    assert "I-03027" in block
+    assert "*I-03027*" in block
     assert "1º TEN PM 144958-3 CARVALHO" in block
-    assert "CB PM 110045-1 JOÃO" in block
+    # ROCAM: moto na linha do policial, não como viatura da equipe
+    assert "CB PM 110045-1 JOÃO - I-03045" in block
+    assert "*I-03045*" not in block
     assert "CB PM 110071-8 FELIPE" in block
     assert " RE " not in block
+
+
+def test_rocam_renders_motorcycle_per_member():
+    snapshot = {
+        "teams": [
+            {
+                "id": 1,
+                "modality": "ROCAM",
+                "mission_name": "ROCAM 1",
+                "vehicle_prefixo": None,
+                "start_time": "13:00",
+                "end_time": "01:00",
+                "members": [
+                    {
+                        "patente": "CB",
+                        "re": "141326-A",
+                        "nome_guerra": "Broisler",
+                        "assigned_vehicle_prefixo": "I-03065-11",
+                        "display_order": 1,
+                    },
+                    {
+                        "patente": "SD",
+                        "re": "190443-4",
+                        "nome_guerra": "Bispo",
+                        "assigned_vehicle_prefixo": "I-03066-11",
+                        "display_order": 2,
+                    },
+                    {
+                        "patente": "SD",
+                        "re": "180961-0",
+                        "nome_guerra": "De Paula",
+                        "assigned_vehicle_prefixo": "I-03067-11",
+                        "display_order": 3,
+                    },
+                ],
+            },
+            {
+                "id": 2,
+                "modality": "FT",
+                "mission_name": "Força Tática",
+                "vehicle_prefixo": "I-03024",
+                "start_time": "13:00",
+                "end_time": "01:00",
+                "members": [
+                    {
+                        "patente": "CB",
+                        "re": "110071-8",
+                        "nome_guerra": "Felipe",
+                        "assigned_vehicle_prefixo": "I-99999",
+                        "display_order": 1,
+                    },
+                    {
+                        "patente": "SD",
+                        "re": "155129-9",
+                        "nome_guerra": "Martins",
+                        "display_order": 2,
+                    },
+                ],
+            },
+        ],
+        "dejem_blocks": [],
+    }
+    block = build_equipes_from_snapshot(snapshot)
+
+    # ROCAM: sem viatura de equipe; moto por policial
+    assert "*🚔 ROCAM 1*" in block
+    assert "CB PM 141326-A BROISLER - I-03065-11" in block
+    assert "SD PM 190443-4 BISPO - I-03066-11" in block
+    assert "SD PM 180961-0 DE PAULA - I-03067-11" in block
+    # Não há linha de viatura da equipe com o prefixo da moto
+    assert "*I-03065-11*" not in block
+    assert "*I-03066-11*" not in block
+    assert "*I-03067-11*" not in block
+
+    # FT: uma viatura da equipe; membros sem moto individual
+    assert "*🚔 FORÇA TÁTICA*" in block
+    assert "*I-03024*" in block
+    assert "CB PM 110071-8 FELIPE" in block
+    assert "SD PM 155129-9 MARTINS" in block
+    assert "I-99999" not in block
+    assert "FELIPE - " not in block
+    assert "MARTINS - " not in block
+
+    # QTR presente nas duas equipes
+    assert block.count("*🕘 QTR* Das 13:00 às 01:00") == 2
+    assert block.index("FORÇA TÁTICA") < block.index("ROCAM 1")
 
 
 def test_render_has_no_global_qtr_block():
