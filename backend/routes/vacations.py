@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
-from auth.dependencies import APPROVER_ROLES, get_current_approved_user, require_approver
+from auth.acting import ActingContext
+from auth.dependencies import APPROVER_ROLES, get_acting_context, require_approver
 from database.session import get_db
 from models.user import User
 from models.vacation import VacationRequest, VacationStatus, VacationType
@@ -52,13 +53,19 @@ def _register_absence_routes(router: APIRouter) -> None:
     def calendar(
         year: int | None = Query(default=None, ge=2000, le=2100),
         month: int | None = Query(default=None, ge=1, le=12),
-        current: User = Depends(get_current_approved_user),
+        ctx: ActingContext = Depends(get_acting_context),
         db: Session = Depends(get_db),
     ) -> VacationCalendarResponse:
         now = datetime.now(_BR)
         y = year if year is not None else now.year
         m = month if month is not None else now.month
-        data = vacation_svc.build_calendar(db, year=y, month=m, viewer=current, is_command=_is_command(current))
+        data = vacation_svc.build_calendar(
+            db,
+            year=y,
+            month=m,
+            viewer=ctx.target,
+            is_command=_is_command(ctx.actor),
+        )
         return VacationCalendarResponse.model_validate(data)
 
     @router.get("/", response_model=list[VacationRequestPublic])
@@ -68,12 +75,14 @@ def _register_absence_routes(router: APIRouter) -> None:
         user_id: int | None = None,
         year: int | None = Query(default=None, ge=2000, le=2100),
         month: int | None = Query(default=None, ge=1, le=12),
-        current: User = Depends(get_current_approved_user),
+        ctx: ActingContext = Depends(get_acting_context),
         db: Session = Depends(get_db),
     ) -> list[VacationRequestPublic]:
         scope_user_id = user_id
-        if scope_user_id is None and current.role not in APPROVER_ROLES:
-            scope_user_id = current.id
+        if ctx.is_acting_as:
+            scope_user_id = ctx.target.id
+        elif scope_user_id is None and ctx.actor.role not in APPROVER_ROLES:
+            scope_user_id = ctx.actor.id
         y, m = year, month
         if y is None or m is None:
             now = datetime.now(_BR)
@@ -100,11 +109,11 @@ def _register_absence_routes(router: APIRouter) -> None:
     @router.post("/request", response_model=VacationRequestPublic, status_code=status.HTTP_201_CREATED)
     def request_absence(
         body: VacationRequestCreate,
-        current: User = Depends(get_current_approved_user),
+        ctx: ActingContext = Depends(get_acting_context),
         db: Session = Depends(get_db),
     ) -> VacationRequestPublic:
         try:
-            row = vacation_svc.create_vacation_request(db, current, body)
+            row = vacation_svc.create_vacation_request(db, ctx.target, body, actor=ctx.actor)
         except ValueError as e:
             msg = str(e)
             code = status.HTTP_409_CONFLICT if "Já existe" in msg else status.HTTP_400_BAD_REQUEST
@@ -115,11 +124,13 @@ def _register_absence_routes(router: APIRouter) -> None:
     def update_absence(
         absence_id: int,
         body: VacationRequestUpdate,
-        current: User = Depends(get_current_approved_user),
+        ctx: ActingContext = Depends(get_acting_context),
         db: Session = Depends(get_db),
     ) -> VacationRequestPublic:
         try:
-            row = vacation_svc.update_vacation_request(db, absence_id, current, body)
+            row = vacation_svc.update_vacation_request(
+                db, absence_id, ctx.target, body, actor=ctx.actor
+            )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
         return _to_public(row)
@@ -154,11 +165,13 @@ def _register_absence_routes(router: APIRouter) -> None:
     def cancel_absence(
         absence_id: int,
         body: VacationDecisionBody,
-        current: User = Depends(get_current_approved_user),
+        ctx: ActingContext = Depends(get_acting_context),
         db: Session = Depends(get_db),
     ) -> VacationRequestPublic:
         try:
-            row = vacation_svc.cancel_vacation(db, absence_id, current, body.reason)
+            row = vacation_svc.cancel_vacation(
+                db, absence_id, ctx.target, body.reason, actor=ctx.actor
+            )
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
         return _to_public(row)

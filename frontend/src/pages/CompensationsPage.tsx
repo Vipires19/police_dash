@@ -4,7 +4,9 @@ import {
   compensationStatusBadgeClass,
   compensationStatusLabel,
 } from "@/components/compensations/statusStyles";
+import { GodModeSelector } from "@/components/GodModeSelector";
 import { OrgUnitBadge, orgBadgeVariantForViewer } from "@/components/OrgUnitBadge";
+import { useActAs } from "@/hooks/ActAsContext";
 import { useAuth } from "@/hooks/AuthContext";
 import type { User } from "@/types";
 import type {
@@ -23,6 +25,7 @@ import * as usersApi from "@/services/usersApi";
 
 export function CompensationsPage() {
   const { token, user, canRegisterCompensation, isApprover } = useAuth();
+  const { isActingAs, targetUser } = useActAs();
   const year = new Date().getFullYear();
 
   const [efetivo, setEfetivo] = useState<User[]>([]);
@@ -73,15 +76,20 @@ export function CompensationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, statusFilter, typeFilter, userFilter, year]);
+  }, [token, statusFilter, typeFilter, userFilter, year, isActingAs, targetUser?.id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   useEffect(() => {
+    if (isActingAs && targetUser) {
+      setUserFilter(targetUser.id);
+      setPicked({ [targetUser.id]: true });
+      return;
+    }
     if (user && !isApprover) setUserFilter(user.id);
-  }, [user, isApprover]);
+  }, [user, isApprover, isActingAs, targetUser]);
 
   useEffect(() => {
     if (!token || !detail) {
@@ -161,7 +169,12 @@ export function CompensationsPage() {
         <div>
           <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">Operacional</p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">Compensações</h1>
+            <h1 className="text-2xl font-semibold text-zinc-50 sm:text-3xl">
+              Compensações
+              {isActingAs && targetUser
+                ? ` do ${targetUser.patente} ${targetUser.nome_guerra}`
+                : ""}
+            </h1>
             {user && <OrgUnitBadge variant={orgBadgeVariantForViewer(user)} />}
           </div>
           <p className="mt-2 max-w-xl text-sm text-zinc-400">
@@ -178,6 +191,8 @@ export function CompensationsPage() {
           </button>
         )}
       </header>
+
+      <GodModeSelector moduleLabel="Compensações" />
 
       {error && (
         <div className="mb-4 rounded-md border border-red-900/50 bg-red-950/40 px-4 py-3 text-sm text-red-200">

@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from core.compensation_labels import MERIT_COMPENSATION_TYPES, compensation_display_label
+from models.audit import AuditOrigin
 from models.compensations import (
     CompensationEvent,
     CompensationEventLog,
@@ -50,10 +51,14 @@ def _append_log(
     to_status: CompensationStatus | None = None,
     motivo: str | None = None,
     details: str | None = None,
+    subject_user_id: int | None = None,
+    origin: AuditOrigin = AuditOrigin.SELF,
 ) -> CompensationEventLog:
     row = CompensationEventLog(
         compensation_event_id=event_id,
         actor_id=actor_id,
+        subject_user_id=subject_user_id,
+        origin=origin,
         action=action,
         from_status=from_status,
         to_status=to_status,
@@ -161,6 +166,8 @@ def create_compensation_event(db: Session, creator: User, body: CompensationEven
         action=CompensationLogAction.CREATED,
         to_status=CompensationStatus.PENDING,
         details=f"Tipo: {body.event_type.value}",
+        subject_user_id=ids[0] if len(ids) == 1 else None,
+        origin=AuditOrigin.ADMIN if creator.id not in ids else AuditOrigin.SELF,
     )
     db.commit()
     db.refresh(ev)

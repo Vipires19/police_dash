@@ -1,7 +1,10 @@
-from fastapi import Depends, HTTPException, status
+from typing import Annotated
+
+from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from auth.acting import ACT_AS_HEADER, ActingContext
 from auth.jwt_utils import decode_token_safe
 from database.session import get_db
 from models.user import User, UserRole, UserStatus
@@ -65,6 +68,46 @@ def get_current_approved_user(current: User = Depends(get_current_user)) -> User
             detail="Conta inativa. Contate o comando.",
         )
     return current
+
+
+def get_acting_context(
+    current: User = Depends(get_current_approved_user),
+    db: Session = Depends(get_db),
+    act_as_raw: Annotated[str | None, Header(alias=ACT_AS_HEADER)] = None,
+) -> ActingContext:
+    """Resolve Actor (JWT) e Target (opcional via X-Act-As-User-Id, só ADMIN)."""
+    if act_as_raw is None or str(act_as_raw).strip() == "":
+        return ActingContext.self(current)
+
+    if current.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Somente ADMIN pode atuar em nome de outro policial",
+        )
+
+    try:
+        target_id = int(str(act_as_raw).strip())
+    except (TypeError, ValueError) as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="X-Act-As-User-Id inválido",
+        ) from e
+
+    if target_id == current.id:
+        return ActingContext.self(current)
+
+    target = user_svc.get_user_by_id(db, target_id)
+    if not target:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Policial alvo não encontrado",
+        )
+    if target.status != UserStatus.APPROVED or not target.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Policial alvo inválido ou inativo",
+        )
+    return ActingContext.admin_as(current, target)
 
 
 def require_approver(current: User = Depends(get_current_approved_user)) -> User:

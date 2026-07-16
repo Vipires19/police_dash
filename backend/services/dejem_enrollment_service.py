@@ -214,9 +214,12 @@ def _consume_or_release(
 
 def enroll_self(
     db: Session,
-    current: User,
+    target: User,
     shift_id: int,
+    *,
+    actor: User | None = None,
 ) -> DejemEnrollmentResult:
+    actor = actor or target
     shift_repo = DejemShiftRepository(db)
     part_repo = DejemParticipantRepository(db)
     alloc_repo = DejemAllocationRepository(db)
@@ -234,41 +237,42 @@ def enroll_self(
     _assert_shift_open(shift)
     _assert_capacity(shift_repo, shift)
 
-    existing = part_repo.get_by_shift_and_user(shift.id, current.id)
+    existing = part_repo.get_by_shift_and_user(shift.id, target.id)
     if existing and existing.status != ParticipantStatus.CANCELLED:
         raise DejemError("Você já está inscrito nesta escala.")
 
-    _assert_no_dejem_overlap(part_repo, user_id=current.id, shift=shift)
-    _assert_no_operational_overlap(db, user_id=current.id, shift=shift)
+    _assert_no_dejem_overlap(part_repo, user_id=target.id, shift=shift)
+    _assert_no_operational_overlap(db, user_id=target.id, shift=shift)
 
     remaining = _consume_or_release(
         alloc_repo,
         month_id=shift.month_id,
-        user_id=current.id,
+        user_id=target.id,
         consume=True,
     )
 
+    acting_as = actor.id != target.id
     if existing and existing.status == ParticipantStatus.CANCELLED:
         existing.status = ParticipantStatus.REGISTERED
         existing.participation_type = ParticipationType.NORMAL
         existing.consumes_balance = True
-        existing.enrolled_by_id = current.id
+        existing.enrolled_by_id = actor.id
         existing.cancelled_at = None
         existing.cancelled_by_id = None
         row = part_repo.save_flush(existing)
-        action = DejemEnrollmentAction.ENROLLED
+        action = DejemEnrollmentAction.ADMIN_ADDED if acting_as else DejemEnrollmentAction.ENROLLED
     else:
         row = part_repo.add_flush(
             DejemParticipant(
                 shift_id=shift.id,
-                user_id=current.id,
+                user_id=target.id,
                 participation_type=ParticipationType.NORMAL,
                 status=ParticipantStatus.REGISTERED,
-                enrolled_by_id=current.id,
+                enrolled_by_id=actor.id,
                 consumes_balance=True,
             )
         )
-        action = DejemEnrollmentAction.ENROLLED
+        action = DejemEnrollmentAction.ADMIN_ADDED if acting_as else DejemEnrollmentAction.ENROLLED
 
     if month.status == DejemMonthStatus.DISTRIBUTED:
         month.status = DejemMonthStatus.OPEN_SHIFTS
@@ -278,10 +282,10 @@ def enroll_self(
         db,
         action=action,
         shift_id=shift.id,
-        actor_id=current.id,
-        subject_user_id=current.id,
+        actor_id=actor.id,
+        subject_user_id=target.id,
         participant_id=row.id,
-        details="autoinscrição",
+        details="god_mode" if acting_as else "autoinscrição",
     )
     part_repo.commit()
     return _participant_to_result(row, remaining)
@@ -289,9 +293,12 @@ def enroll_self(
 
 def cancel_self(
     db: Session,
-    current: User,
+    target: User,
     shift_id: int,
+    *,
+    actor: User | None = None,
 ) -> DejemEnrollmentResult:
+    actor = actor or target
     shift_repo = DejemShiftRepository(db)
     part_repo = DejemParticipantRepository(db)
     alloc_repo = DejemAllocationRepository(db)
@@ -301,7 +308,7 @@ def cancel_self(
         raise DejemError("Escala não encontrada.")
     _assert_shift_open(shift)
 
-    row = part_repo.get_by_shift_and_user(shift.id, current.id)
+    row = part_repo.get_by_shift_and_user(shift.id, target.id)
     if not row or row.status == ParticipantStatus.CANCELLED:
         raise DejemError("Você não está inscrito nesta escala.")
 
@@ -310,26 +317,27 @@ def cancel_self(
         remaining = _consume_or_release(
             alloc_repo,
             month_id=shift.month_id,
-            user_id=current.id,
+            user_id=target.id,
             consume=False,
         )
     else:
-        alloc = alloc_repo.get_by_month_and_user(shift.month_id, current.id)
+        alloc = alloc_repo.get_by_month_and_user(shift.month_id, target.id)
         remaining = alloc.remaining_slots if alloc else None
 
     row.status = ParticipantStatus.CANCELLED
     row.cancelled_at = datetime.now(tz=_BR)
-    row.cancelled_by_id = current.id
+    row.cancelled_by_id = actor.id
     part_repo.save_flush(row)
 
+    acting_as = actor.id != target.id
     _audit(
         db,
-        action=DejemEnrollmentAction.CANCELLED,
+        action=DejemEnrollmentAction.ADMIN_REMOVED if acting_as else DejemEnrollmentAction.CANCELLED,
         shift_id=shift.id,
-        actor_id=current.id,
-        subject_user_id=current.id,
+        actor_id=actor.id,
+        subject_user_id=target.id,
         participant_id=row.id,
-        details="cancelamento pelo policial",
+        details="god_mode" if acting_as else "autocancelamento",
     )
     part_repo.commit()
     return _participant_to_result(row, remaining)
@@ -534,7 +542,7 @@ def close_shift(db: Session, current: User, shift_id: int) -> DejemShiftPublic:
 
 def get_my_day_cards(
     db: Session,
-    current: User,
+    target: User,
     year: int,
     month: int,
     day: int,
@@ -550,7 +558,7 @@ def get_my_day_cards(
     cards: list[DejemMyShiftCard] = []
     for shift in rows:
         filled = shift_repo.count_filled(shift.id)
-        mine = part_repo.get_by_shift_and_user(shift.id, current.id)
+        mine = part_repo.get_by_shift_and_user(shift.id, target.id)
         enrolled = bool(mine and mine.status != ParticipantStatus.CANCELLED)
         cards.append(
             DejemMyShiftCard(

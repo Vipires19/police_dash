@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
+from auth.acting import ActingContext
 from auth.dependencies import (
+    get_acting_context,
     get_current_approved_user,
     require_dejem_admin,
     require_dejem_reopen,
@@ -129,11 +131,11 @@ def close_interest(
 @router.get("/months/{month_id}/interest", response_model=DejemInterestPublic | None)
 def get_my_interest(
     month_id: int,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemInterestPublic | None:
     try:
-        return svc.get_my_interest(db, month_id, current)
+        return svc.get_my_interest(db, month_id, ctx.target)
     except DejemError as e:
         raise _http_error(e) from e
 
@@ -146,11 +148,11 @@ def get_my_interest(
 def create_my_interest(
     month_id: int,
     body: DejemInterestUpsert,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemInterestPublic:
     try:
-        return svc.create_my_interest(db, month_id, current, body)
+        return svc.create_my_interest(db, month_id, ctx.target, body)
     except DejemError as e:
         raise _http_error(e) from e
 
@@ -159,11 +161,11 @@ def create_my_interest(
 def update_my_interest(
     month_id: int,
     body: DejemInterestUpsert,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemInterestPublic:
     try:
-        return svc.update_my_interest(db, month_id, current, body)
+        return svc.update_my_interest(db, month_id, ctx.target, body)
     except DejemError as e:
         raise _http_error(e) from e
 
@@ -171,11 +173,11 @@ def update_my_interest(
 @router.delete("/months/{month_id}/interest", status_code=status.HTTP_204_NO_CONTENT)
 def delete_my_interest(
     month_id: int,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> Response:
     try:
-        svc.delete_my_interest(db, month_id, current)
+        svc.delete_my_interest(db, month_id, ctx.target)
     except DejemError as e:
         raise _http_error(e) from e
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -250,11 +252,11 @@ def list_month_allocations(
 @router.get("/months/{month_id}/allocation", response_model=DejemAllocationPublic | None)
 def get_my_allocation(
     month_id: int,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemAllocationPublic | None:
     try:
-        return svc.get_my_allocation(db, month_id, current)
+        return svc.get_my_allocation(db, month_id, ctx.target)
     except DejemError as e:
         raise _http_error(e) from e
 
@@ -366,7 +368,7 @@ def my_shift_day(
     year: int,
     month: int,
     day: int,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemMyDayDetail:
     from datetime import date as Date
@@ -375,7 +377,7 @@ def my_shift_day(
 
     d = Date(year, month, day)
     month_entity = DejemMonthRepository(db).get_by_year_month(year, month)
-    cards = enroll_svc.get_my_day_cards(db, current, year, month, day)
+    cards = enroll_svc.get_my_day_cards(db, ctx.target, year, month, day)
     return DejemMyDayDetail(
         date=d,
         month_id=month_entity.id if month_entity else None,
@@ -386,11 +388,11 @@ def my_shift_day(
 @router.post("/shifts/{shift_id}/enroll", response_model=DejemEnrollmentResult)
 def enroll_in_shift(
     shift_id: int,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemEnrollmentResult:
     try:
-        return enroll_svc.enroll_self(db, current, shift_id)
+        return enroll_svc.enroll_self(db, ctx.target, shift_id, actor=ctx.actor)
     except DejemError as e:
         raise _http_error(e) from e
 
@@ -398,11 +400,11 @@ def enroll_in_shift(
 @router.delete("/shifts/{shift_id}/enroll", response_model=DejemEnrollmentResult)
 def cancel_shift_enrollment(
     shift_id: int,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> DejemEnrollmentResult:
     try:
-        return enroll_svc.cancel_self(db, current, shift_id)
+        return enroll_svc.cancel_self(db, ctx.target, shift_id, actor=ctx.actor)
     except DejemError as e:
         raise _http_error(e) from e
 

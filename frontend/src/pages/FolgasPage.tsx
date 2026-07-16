@@ -3,7 +3,9 @@ import { LeaveRequestModal } from "@/components/folgas/LeaveRequestModal";
 import { MonthlyCalendar } from "@/components/folgas/MonthlyCalendar";
 import { leaveStatusBadgeClass, leaveStatusLabel } from "@/components/folgas/statusStyles";
 import { leaveTypeLabel } from "@/components/folgas/leaveTypeLabels";
+import { GodModeSelector } from "@/components/GodModeSelector";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
+import { useActAs } from "@/hooks/ActAsContext";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
 import * as leavesApi from "@/services/leavesApi";
@@ -27,7 +29,8 @@ function sortEntries(entries: CalendarLeaveEntry[]): CalendarLeaveEntry[] {
 }
 
 export function FolgasPage() {
-  const { token, user, isApprover } = useAuth();
+  const { token, isApprover } = useAuth();
+  const { effectiveUser, isActingAs, targetUser } = useActAs();
   const now = useMemo(() => new Date(), []);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -55,7 +58,7 @@ export function FolgasPage() {
       setCal(null);
       setErr(e instanceof ApiError ? e.detail : "Falha ao carregar folgas");
     }
-  }, [token, year, month]);
+  }, [token, year, month, isActingAs, targetUser?.id]);
 
   useEffect(() => {
     void load();
@@ -100,7 +103,7 @@ export function FolgasPage() {
   };
 
   const canCancelEntry = (e: CalendarLeaveEntry) =>
-    e.user_id === user?.id && CANCELLABLE_LEAVE_STATUSES.includes(e.status);
+    e.user_id === effectiveUser?.id && CANCELLABLE_LEAVE_STATUSES.includes(e.status);
 
   async function confirmCancelLeave(leaveId: number, status: LeaveStatus) {
     if (!token) return;
@@ -135,13 +138,20 @@ export function FolgasPage() {
     <OperationalLayout>
       <header className="mb-6">
         <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-zinc-500">Operacional</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">Folgas</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">
+          Folgas
+          {isActingAs && targetUser
+            ? ` do ${targetUser.patente} ${targetUser.nome_guerra}`
+            : ""}
+        </h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
           Calendário mensal, solicitação de folga mensal ou por compensação aprovada. Indicadores discretos: azul
           pendente, amarelo revisão automática, verde aprovado, vermelho indeferido. A janela do mês seguinte obedece
           à regra do dia 25 (também validada na API).
         </p>
       </header>
+
+      <GodModeSelector moduleLabel="Folgas" />
 
       {err && <p className="mb-4 text-sm text-red-400">{err}</p>}
       {msg && (
@@ -211,12 +221,12 @@ export function FolgasPage() {
                     className={[
                       "rounded-lg border px-3 py-2 text-xs",
                       leaveStatusBadgeClass(e.status),
-                      e.user_id === user?.id ? "ring-1 ring-zinc-400/40" : "",
+                      e.user_id === effectiveUser?.id ? "ring-1 ring-zinc-400/40" : "",
                     ].join(" ")}
                   >
                     <p className="font-medium">
                       {e.patente} {e.nome_guerra}
-                      {e.user_id === user?.id && (
+                      {e.user_id === effectiveUser?.id && (
                         <span className="ml-1 font-normal text-zinc-500">(você)</span>
                       )}
                     </p>

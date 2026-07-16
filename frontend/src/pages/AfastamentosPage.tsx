@@ -7,7 +7,9 @@ import {
   vacationTypeBadgeClass,
   vacationTypeLabel,
 } from "@/components/vacations/statusStyles";
+import { GodModeSelector } from "@/components/GodModeSelector";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
+import { useActAs } from "@/hooks/ActAsContext";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
 import * as absencesApi from "@/services/absencesApi";
@@ -38,7 +40,8 @@ function formatPeriod(start: string, end: string): string {
 }
 
 export function AfastamentosPage() {
-  const { token, user, isApprover } = useAuth();
+  const { token, isApprover } = useAuth();
+  const { effectiveUser, isActingAs, targetUser } = useActAs();
   const now = useMemo(() => new Date(), []);
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -68,7 +71,7 @@ export function AfastamentosPage() {
       setCal(null);
       setErr(e instanceof ApiError ? e.detail : "Falha ao carregar afastamentos");
     }
-  }, [token, year, month]);
+  }, [token, year, month, isActingAs, targetUser?.id]);
 
   useEffect(() => {
     void load();
@@ -101,10 +104,10 @@ export function AfastamentosPage() {
   };
 
   const canCancel = (e: CalendarVacationEntry) =>
-    e.user_id === user?.id && CANCELLABLE.includes(e.status);
+    e.user_id === effectiveUser?.id && CANCELLABLE.includes(e.status);
 
   const canEdit = (e: CalendarVacationEntry) =>
-    e.user_id === user?.id && (e.status === "PENDING" || e.status === "REVIEW");
+    e.user_id === effectiveUser?.id && (e.status === "PENDING" || e.status === "REVIEW");
 
   async function confirmCancel(id: number, status: VacationStatus) {
     if (!token) return;
@@ -151,12 +154,19 @@ export function AfastamentosPage() {
     <OperationalLayout>
       <header className="mb-6">
         <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-zinc-500">Operacional</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">Afastamentos</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">
+          Afastamentos
+          {isActingAs && targetUser
+            ? ` do ${targetUser.patente} ${targetUser.nome_guerra}`
+            : ""}
+        </h1>
         <p className="mt-2 max-w-2xl text-sm text-zinc-400">
           Férias, LP, LTS, cursos e demais afastamentos em um calendário único. Férias/LP: 15 ou 30 dias e limite de 2
           policiais/dia. Demais tipos: período livre, sem simultaneidade.
         </p>
       </header>
+
+      <GodModeSelector moduleLabel="Afastamentos" />
 
       {err && <p className="mb-4 text-sm text-red-400">{err}</p>}
       {msg && (
@@ -244,12 +254,12 @@ export function AfastamentosPage() {
                     className={[
                       "rounded-lg border px-3 py-2 text-xs",
                       vacationStatusBadgeClass(e.status),
-                      e.user_id === user?.id ? "ring-1 ring-zinc-400/40" : "",
+                      e.user_id === effectiveUser?.id ? "ring-1 ring-zinc-400/40" : "",
                     ].join(" ")}
                   >
                     <p className="font-medium">
                       {e.patente} {e.nome_guerra}
-                      {e.user_id === user?.id && <span className="ml-1 text-zinc-500">(você)</span>}
+                      {e.user_id === effectiveUser?.id && <span className="ml-1 text-zinc-500">(você)</span>}
                     </p>
                     <p className="mt-1 font-mono text-[10px] text-zinc-400">{formatPeriod(e.start_date, e.end_date)}</p>
                     <p className="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-wide">

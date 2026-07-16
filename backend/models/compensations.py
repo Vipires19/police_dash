@@ -7,6 +7,7 @@ from sqlalchemy import DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.base import Base
+from models.audit import AuditOrigin
 
 
 class CompensationType(str, enum.Enum):
@@ -103,6 +104,13 @@ class CompensationEventLog(Base):
         index=True,
     )
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    subject_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    origin: Mapped[AuditOrigin] = mapped_column(
+        Enum(AuditOrigin, name="auditorigin", create_type=False),
+        nullable=False,
+        default=AuditOrigin.SELF,
+        server_default="SELF",
+    )
     action: Mapped[CompensationLogAction] = mapped_column(
         Enum(CompensationLogAction, name="compensationlogaction", create_type=False),
         nullable=False,

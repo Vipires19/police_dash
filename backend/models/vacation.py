@@ -7,6 +7,7 @@ from sqlalchemy import Date, DateTime, Enum, ForeignKey, Integer, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.base import Base
+from models.audit import AuditOrigin
 
 
 class VacationType(str, enum.Enum):
@@ -58,6 +59,8 @@ class VacationRequest(Base):
     decision_reason: Mapped[str | None] = mapped_column(Text(), nullable=True)
     approved_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -71,6 +74,8 @@ class VacationRequest(Base):
     )
 
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
+    created_by: Mapped["User | None"] = relationship("User", foreign_keys=[created_by_id])
+    updated_by: Mapped["User | None"] = relationship("User", foreign_keys=[updated_by_id])
     approval_logs: Mapped[list["VacationApprovalLog"]] = relationship(
         "VacationApprovalLog",
         back_populates="vacation_request",
@@ -88,6 +93,13 @@ class VacationApprovalLog(Base):
         index=True,
     )
     actor_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    subject_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    origin: Mapped[AuditOrigin] = mapped_column(
+        Enum(AuditOrigin, name="auditorigin", create_type=False),
+        nullable=False,
+        default=AuditOrigin.SELF,
+        server_default="SELF",
+    )
     action: Mapped[VacationLogAction] = mapped_column(
         Enum(VacationLogAction, name="vacationlogaction", create_type=False),
         nullable=False,

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { createBrowserRouter, Navigate, RouterProvider } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/AuthContext";
+import { ActAsProvider } from "@/hooks/ActAsContext";
 import { ApprovalHubRoute, ApproverRoute, ProtectedRoute } from "@/components/ProtectedRoute";
 import { LoginPage } from "@/pages/LoginPage";
 import { RegisterPage } from "@/pages/RegisterPage";
@@ -250,7 +251,9 @@ const router = createBrowserRouter([
 export default function App() {
   return (
     <AuthProvider>
-      <RouterProvider router={router} />
+      <ActAsProvider>
+        <RouterProvider router={router} />
+      </ActAsProvider>
     </AuthProvider>
   );
 }

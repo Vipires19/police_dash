@@ -1,5 +1,8 @@
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
+const ACT_AS_KEY = "actAsUserId";
+const ACT_AS_HEADER = "X-Act-As-User-Id";
+
 export class ApiError extends Error {
   status: number;
   detail: string;
@@ -9,6 +12,13 @@ export class ApiError extends Error {
     this.status = status;
     this.detail = detail;
   }
+}
+
+function readActAsUserId(): string | null {
+  const raw = sessionStorage.getItem(ACT_AS_KEY);
+  if (!raw) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? String(n) : null;
 }
 
 export async function apiFetch<T>(
@@ -22,6 +32,10 @@ export async function apiFetch<T>(
   const token = init.token ?? localStorage.getItem("token");
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
+  }
+  const actAs = readActAsUserId();
+  if (actAs && !headers.has(ACT_AS_HEADER)) {
+    headers.set(ACT_AS_HEADER, actAs);
   }
   const { token: _t, ...rest } = init;
   const res = await fetch(`${API_URL}${path}`, { ...rest, headers });

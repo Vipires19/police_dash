@@ -13,6 +13,7 @@ from core.leave_booking_policy import (
     assert_leave_booking_allowed,
     today_br,
 )
+from models.audit import AuditOrigin
 from models.compensations import CompensationEvent, CompensationStatus, UserCompensation, UserCompensationStatus
 from models.leaves import LeaveApprovalLog, LeaveLogAction, LeaveRequest, LeaveStatus, LeaveType
 from models.user import User
@@ -29,11 +30,17 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return start, last
 
 
+def _resolve_origin(actor: User, target: User) -> AuditOrigin:
+    return AuditOrigin.ADMIN if actor.id != target.id else AuditOrigin.SELF
+
+
 def _append_leave_log(
     db: Session,
     *,
     leave: LeaveRequest,
     actor_id: int,
+    subject_user_id: int,
+    origin: AuditOrigin,
     action: LeaveLogAction,
     from_status: LeaveStatus | None,
     to_status: LeaveStatus | None,
@@ -44,6 +51,8 @@ def _append_leave_log(
         LeaveApprovalLog(
             leave_request_id=leave.id,
             actor_id=actor_id,
+            subject_user_id=subject_user_id,
+            origin=origin,
             action=action,
             from_status=from_status,
             to_status=to_status,
@@ -107,8 +116,17 @@ def _duplicate_active(db: Session, user_id: int, leave_on: date) -> bool:
     return int(db.scalar(stmt) or 0) > 0
 
 
-def create_leave_request(db: Session, actor: User, payload: LeaveRequestCreate) -> LeaveRequest:
-    if _duplicate_active(db, actor.id, payload.leave_on):
+def create_leave_request(
+    db: Session,
+    target: User,
+    payload: LeaveRequestCreate,
+    *,
+    actor: User | None = None,
+) -> LeaveRequest:
+    actor = actor or target
+    origin = _resolve_origin(actor, target)
+
+    if _duplicate_active(db, target.id, payload.leave_on):
         raise ValueError("Já existe solicitação ativa para este dia")
 
     assert_leave_booking_allowed(payload.leave_on)
@@ -126,18 +144,18 @@ def create_leave_request(db: Session, actor: User, payload: LeaveRequestCreate) 
         uc = db.scalars(
             select(UserCompensation).where(UserCompensation.id == payload.user_compensation_id)
         ).first()
-        if not uc or uc.user_id != actor.id:
+        if not uc or uc.user_id != target.id:
             raise ValueError("Compensação inválida")
         if uc.status != UserCompensationStatus.AVAILABLE:
             raise ValueError("Compensação indisponível")
 
     year, month = payload.leave_on.year, payload.leave_on.month
-    month_total = _count_user_month_leaves(db, actor.id, year, month)
+    month_total = _count_user_month_leaves(db, target.id, year, month)
     day_total = _count_day_leaves(db, payload.leave_on)
 
     reasons: list[str] = []
     if payload.leave_type == LeaveType.MONTHLY:
-        if _count_user_monthly_folgas(db, actor.id, year, month) >= 1:
+        if _count_user_monthly_folgas(db, target.id, year, month) >= 1:
             reasons.append("Já existe folga mensal ativa neste mês")
     elif month_total + 1 > 2:
         reasons.append("Excedeu limite operacional mensal (máx. 2 folgas)")
@@ -148,12 +166,14 @@ def create_leave_request(db: Session, actor: User, payload: LeaveRequestCreate) 
     review_reason = "; ".join(reasons) if reasons else None
 
     row = LeaveRequest(
-        user_id=actor.id,
+        user_id=target.id,
         leave_on=payload.leave_on,
         leave_type=payload.leave_type,
         user_compensation_id=payload.user_compensation_id,
         status=status,
         review_reason=review_reason,
+        created_by_id=actor.id,
+        updated_by_id=actor.id,
     )
     db.add(row)
     db.flush()
@@ -163,6 +183,8 @@ def create_leave_request(db: Session, actor: User, payload: LeaveRequestCreate) 
         db,
         leave=row,
         actor_id=actor.id,
+        subject_user_id=target.id,
+        origin=origin,
         action=LeaveLogAction.CREATED,
         from_status=None,
         to_status=status,
@@ -186,6 +208,7 @@ def approve_leave(db: Session, leave_id: int, approver: User, motivo: str | None
     row.decided_by_id = approver.id
     row.decided_at = datetime.now(_BR)
     row.decision_motivo = motivo
+    row.updated_by_id = approver.id
 
     if row.leave_type == LeaveType.COMPENSATION and row.user_compensation_id:
         uc = db.scalars(
@@ -200,6 +223,8 @@ def approve_leave(db: Session, leave_id: int, approver: User, motivo: str | None
         db,
         leave=row,
         actor_id=approver.id,
+        subject_user_id=row.user_id,
+        origin=AuditOrigin.SELF if approver.id == row.user_id else AuditOrigin.ADMIN,
         action=LeaveLogAction.APPROVED,
         from_status=prev,
         to_status=LeaveStatus.APPROVED,
@@ -223,11 +248,14 @@ def reject_leave(db: Session, leave_id: int, approver: User, motivo: str) -> Lea
     row.decided_by_id = approver.id
     row.decided_at = datetime.now(_BR)
     row.decision_motivo = motivo
+    row.updated_by_id = approver.id
 
     _append_leave_log(
         db,
         leave=row,
         actor_id=approver.id,
+        subject_user_id=row.user_id,
+        origin=AuditOrigin.SELF if approver.id == row.user_id else AuditOrigin.ADMIN,
         action=LeaveLogAction.REJECTED,
         from_status=prev,
         to_status=LeaveStatus.REJECTED,
@@ -253,11 +281,21 @@ def _release_compensation_credit_for_leave(db: Session, row: LeaveRequest) -> No
         uc.used_at = None
 
 
-def cancel_leave(db: Session, leave_id: int, actor: User, motivo: str | None) -> LeaveRequest:
+def cancel_leave(
+    db: Session,
+    leave_id: int,
+    target: User,
+    motivo: str | None,
+    *,
+    actor: User | None = None,
+) -> LeaveRequest:
+    actor = actor or target
+    origin = _resolve_origin(actor, target)
+
     row = db.scalars(select(LeaveRequest).where(LeaveRequest.id == leave_id)).first()
     if not row:
         raise ValueError("Solicitação não encontrada")
-    if row.user_id != actor.id:
+    if row.user_id != target.id:
         raise ValueError("Somente o solicitante pode cancelar")
     if row.status not in _ACTIVE_LEAVE_STATUSES:
         raise ValueError("Esta solicitação não pode mais ser cancelada")
@@ -267,6 +305,7 @@ def cancel_leave(db: Session, leave_id: int, actor: User, motivo: str | None) ->
     prev = row.status
     row.status = LeaveStatus.CANCELLED
     row.decision_motivo = motivo.strip() if motivo else motivo
+    row.updated_by_id = actor.id
 
     if prev == LeaveStatus.APPROVED:
         _release_compensation_credit_for_leave(db, row)
@@ -275,6 +314,8 @@ def cancel_leave(db: Session, leave_id: int, actor: User, motivo: str | None) ->
         db,
         leave=row,
         actor_id=actor.id,
+        subject_user_id=target.id,
+        origin=origin,
         action=LeaveLogAction.CANCELLED,
         from_status=prev,
         to_status=LeaveStatus.CANCELLED,

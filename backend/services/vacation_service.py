@@ -12,6 +12,7 @@ from core.absence_labels import (
     absence_display_label,
     is_restricted_absence,
 )
+from models.audit import AuditOrigin
 from models.user import User
 from models.vacation import (
     VacationApprovalLog,
@@ -26,6 +27,10 @@ _BR = ZoneInfo("America/Sao_Paulo")
 _MAX_SIMULTANEOUS_PER_DAY = 2
 _ACTIVE_VACATION_STATUSES = (VacationStatus.PENDING, VacationStatus.REVIEW, VacationStatus.APPROVED)
 RESTRICTED_FOR_SIMULTANEITY = (VacationType.FERIAS, VacationType.LP)
+
+
+def _resolve_origin(actor: User, target: User) -> AuditOrigin:
+    return AuditOrigin.ADMIN if actor.id != target.id else AuditOrigin.SELF
 
 
 def _month_bounds(year: int, month: int) -> tuple[date, date]:
@@ -50,6 +55,8 @@ def _append_vacation_log(
     *,
     vacation: VacationRequest,
     actor_id: int,
+    subject_user_id: int,
+    origin: AuditOrigin,
     action: VacationLogAction,
     from_status: VacationStatus | None,
     to_status: VacationStatus | None,
@@ -59,6 +66,8 @@ def _append_vacation_log(
         VacationApprovalLog(
             vacation_request_id=vacation.id,
             actor_id=actor_id,
+            subject_user_id=subject_user_id,
+            origin=origin,
             action=action,
             from_status=from_status,
             to_status=to_status,
@@ -132,10 +141,18 @@ def _validate_absence_period(
     return total
 
 
-def create_vacation_request(db: Session, actor: User, payload: VacationRequestCreate) -> VacationRequest:
+def create_vacation_request(
+    db: Session,
+    target: User,
+    payload: VacationRequestCreate,
+    *,
+    actor: User | None = None,
+) -> VacationRequest:
+    actor = actor or target
+    origin = _resolve_origin(actor, target)
     total = _validate_absence_period(payload.vacation_type, payload.start_date, payload.end_date)
 
-    if _user_overlap_active(db, actor.id, payload.start_date, payload.end_date):
+    if _user_overlap_active(db, target.id, payload.start_date, payload.end_date):
         raise ValueError("Já existe solicitação ativa que sobrepõe este período")
 
     review_reasons = _simultaneity_review_reasons(
@@ -145,7 +162,7 @@ def create_vacation_request(db: Session, actor: User, payload: VacationRequestCr
     review_reason = "; ".join(review_reasons) if review_reasons else None
 
     row = VacationRequest(
-        user_id=actor.id,
+        user_id=target.id,
         vacation_type=payload.vacation_type,
         start_date=payload.start_date,
         end_date=payload.end_date,
@@ -153,6 +170,8 @@ def create_vacation_request(db: Session, actor: User, payload: VacationRequestCr
         status=status,
         review_reason=review_reason,
         notes=payload.notes,
+        created_by_id=actor.id,
+        updated_by_id=actor.id,
     )
     db.add(row)
     db.flush()
@@ -165,6 +184,8 @@ def create_vacation_request(db: Session, actor: User, payload: VacationRequestCr
         db,
         vacation=row,
         actor_id=actor.id,
+        subject_user_id=target.id,
+        origin=origin,
         action=VacationLogAction.CREATED,
         from_status=None,
         to_status=status,
@@ -187,11 +208,14 @@ def approve_vacation(db: Session, vacation_id: int, approver: User, reason: str 
     row.approved_by_id = approver.id
     row.approved_at = datetime.now(_BR)
     row.decision_reason = reason
+    row.updated_by_id = approver.id
 
     _append_vacation_log(
         db,
         vacation=row,
         actor_id=approver.id,
+        subject_user_id=row.user_id,
+        origin=AuditOrigin.ADMIN if approver.id != row.user_id else AuditOrigin.SELF,
         action=VacationLogAction.APPROVED,
         from_status=prev,
         to_status=VacationStatus.APPROVED,
@@ -214,11 +238,14 @@ def reject_vacation(db: Session, vacation_id: int, approver: User, reason: str) 
     row.approved_by_id = approver.id
     row.approved_at = datetime.now(_BR)
     row.decision_reason = reason
+    row.updated_by_id = approver.id
 
     _append_vacation_log(
         db,
         vacation=row,
         actor_id=approver.id,
+        subject_user_id=row.user_id,
+        origin=AuditOrigin.ADMIN if approver.id != row.user_id else AuditOrigin.SELF,
         action=VacationLogAction.REJECTED,
         from_status=prev,
         to_status=VacationStatus.REJECTED,
@@ -229,11 +256,21 @@ def reject_vacation(db: Session, vacation_id: int, approver: User, reason: str) 
     return row
 
 
-def cancel_vacation(db: Session, vacation_id: int, actor: User, reason: str | None) -> VacationRequest:
+def cancel_vacation(
+    db: Session,
+    vacation_id: int,
+    target: User,
+    reason: str | None,
+    *,
+    actor: User | None = None,
+) -> VacationRequest:
+    actor = actor or target
+    origin = _resolve_origin(actor, target)
+
     row = db.scalars(select(VacationRequest).where(VacationRequest.id == vacation_id)).first()
     if not row:
         raise ValueError("Solicitação não encontrada")
-    if row.user_id != actor.id:
+    if row.user_id != target.id:
         raise ValueError("Somente o solicitante pode cancelar")
     if row.status not in _ACTIVE_VACATION_STATUSES:
         raise ValueError("Esta solicitação não pode mais ser cancelada")
@@ -243,11 +280,14 @@ def cancel_vacation(db: Session, vacation_id: int, actor: User, reason: str | No
     prev = row.status
     row.status = VacationStatus.CANCELLED
     row.decision_reason = reason.strip() if reason else reason
+    row.updated_by_id = actor.id
 
     _append_vacation_log(
         db,
         vacation=row,
         actor_id=actor.id,
+        subject_user_id=target.id,
+        origin=origin,
         action=VacationLogAction.CANCELLED,
         from_status=prev,
         to_status=VacationStatus.CANCELLED,
@@ -274,11 +314,14 @@ def revert_vacation(db: Session, vacation_id: int, approver: User, reason: str) 
     row.approved_by_id = approver.id
     row.approved_at = datetime.now(_BR)
     row.decision_reason = reason.strip()
+    row.updated_by_id = approver.id
 
     _append_vacation_log(
         db,
         vacation=row,
         actor_id=approver.id,
+        subject_user_id=row.user_id,
+        origin=AuditOrigin.ADMIN,
         action=VacationLogAction.REVERTED,
         from_status=prev,
         to_status=VacationStatus.REVERTED,
@@ -292,15 +335,20 @@ def revert_vacation(db: Session, vacation_id: int, approver: User, reason: str) 
 def update_vacation_request(
     db: Session,
     vacation_id: int,
-    actor: User,
+    target: User,
     payload: VacationRequestUpdate,
+    *,
+    actor: User | None = None,
 ) -> VacationRequest:
+    actor = actor or target
+    origin = _resolve_origin(actor, target)
+
     row = db.scalars(select(VacationRequest).where(VacationRequest.id == vacation_id)).first()
     if not row:
         raise ValueError("Solicitação não encontrada")
 
     is_command = actor.role in APPROVER_ROLES
-    if row.user_id != actor.id and not is_command:
+    if row.user_id != target.id and not is_command:
         raise ValueError("Sem permissão para editar")
     if row.status not in (VacationStatus.PENDING, VacationStatus.REVIEW) and not is_command:
         raise ValueError("Somente pendências podem ser editadas pelo solicitante")
@@ -330,10 +378,14 @@ def update_vacation_request(
         row.status = VacationStatus.PENDING
         row.review_reason = None
 
+    row.updated_by_id = actor.id
+
     _append_vacation_log(
         db,
         vacation=row,
         actor_id=actor.id,
+        subject_user_id=row.user_id,
+        origin=origin,
         action=VacationLogAction.UPDATED,
         from_status=prev,
         to_status=row.status,

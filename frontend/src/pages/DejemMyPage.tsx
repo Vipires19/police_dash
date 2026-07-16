@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DejemMyEnrollmentDrawer } from "@/components/dejem/DejemMyEnrollmentDrawer";
 import { DejemShiftMonthlyCalendar } from "@/components/dejem/DejemShiftMonthlyCalendar";
+import { GodModeSelector } from "@/components/GodModeSelector";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
+import { useActAs } from "@/hooks/ActAsContext";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
 import * as dejemApi from "@/services/dejemApi";
@@ -17,6 +19,7 @@ import {
 
 export function DejemMyPage() {
   const { token } = useAuth();
+  const { isActingAs, targetUser } = useActAs();
   const [months, setMonths] = useState<DejemMonthPublic[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [interest, setInterest] = useState<DejemInterestPublic | null>(null);
@@ -65,7 +68,7 @@ export function DejemMyPage() {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, isActingAs, targetUser?.id]);
 
   const loadInterest = useCallback(
     async (monthId: number) => {
@@ -84,7 +87,7 @@ export function DejemMyPage() {
         setError(e instanceof ApiError ? e.detail : "Erro ao carregar manifestação");
       }
     },
-    [token],
+    [token, isActingAs, targetUser?.id],
   );
 
   const loadAllocation = useCallback(
@@ -101,7 +104,7 @@ export function DejemMyPage() {
         setError(e instanceof ApiError ? e.detail : "Erro ao carregar saldo");
       }
     },
-    [token],
+    [token, isActingAs, targetUser?.id],
   );
 
   const loadCalendar = useCallback(async () => {
@@ -115,7 +118,7 @@ export function DejemMyPage() {
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : "Erro ao carregar calendário");
     }
-  }, [token, selected, canEnroll]);
+  }, [token, selected, canEnroll, isActingAs, targetUser?.id]);
 
   useEffect(() => {
     void loadMonths();
@@ -158,7 +161,7 @@ export function DejemMyPage() {
         setError(e instanceof ApiError ? e.detail : "Erro ao carregar o dia");
       }
     })();
-  }, [token, selectedDay, selected, canEnroll]);
+  }, [token, selectedDay, selected, canEnroll, isActingAs, targetUser?.id]);
 
   const refreshAfterEnrollment = async () => {
     if (!token || !selected) return;
@@ -268,11 +271,17 @@ export function DejemMyPage() {
     <OperationalLayout>
       <header className="mb-8">
         <p className="text-xs uppercase tracking-[0.35em] text-zinc-500">DEJEM</p>
-        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">Minha DEJEM</h1>
+        <h1 className="mt-2 text-2xl font-semibold text-zinc-50">
+          {isActingAs && targetUser
+            ? `DEJEM do ${targetUser.patente} ${targetUser.nome_guerra}`
+            : "Minha DEJEM"}
+        </h1>
         <p className="mt-2 max-w-xl text-sm text-zinc-400">
           Manifestação de interesse, saldo e inscrição nas escalas abertas.
         </p>
       </header>
+
+      <GodModeSelector moduleLabel="DEJEM" />
 
       {error && (
         <p className="mb-4 rounded-lg border border-red-900/60 bg-red-950/40 px-4 py-3 text-sm text-red-200">

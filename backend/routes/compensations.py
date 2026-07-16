@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from auth.acting import ActingContext
 from auth.dependencies import (
     APPROVER_ROLES,
+    get_acting_context,
     get_current_approved_user,
     require_approver,
     require_compensation_creator,
@@ -31,14 +33,14 @@ router = APIRouter(prefix="/compensations", tags=["compensations"])
 @router.get("/summary", response_model=CompensationDashboardSummary)
 def compensation_summary(
     year: int | None = Query(default=None, ge=2020, le=2100),
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> CompensationDashboardSummary:
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     y = year or datetime.now(ZoneInfo("America/Sao_Paulo")).year
-    return comp_svc.get_dashboard_summary(db, current, y)
+    return comp_svc.get_dashboard_summary(db, ctx.target, y)
 
 
 @router.get("/", response_model=list[CompensationEventPublic])
@@ -47,12 +49,14 @@ def list_compensations(
     event_type: CompensationType | None = None,
     user_id: int | None = None,
     year: int | None = Query(default=None, ge=2020, le=2100),
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> list[CompensationEventPublic]:
     scope_user_id = user_id
-    if scope_user_id is None and current.role not in APPROVER_ROLES:
-        scope_user_id = current.id
+    if ctx.is_acting_as:
+        scope_user_id = ctx.target.id
+    elif scope_user_id is None and ctx.actor.role not in APPROVER_ROLES:
+        scope_user_id = ctx.actor.id
     rows = comp_svc.list_compensation_events(
         db,
         status=status,
@@ -74,10 +78,10 @@ def pending_compensations(
 
 @router.get("/available", response_model=list[UserCompensationAvailablePublic])
 def available_compensations(
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> list[UserCompensationAvailablePublic]:
-    rows = leave_svc.list_available_compensation_credits(db, current.id)
+    rows = leave_svc.list_available_compensation_credits(db, ctx.target.id)
     return [UserCompensationAvailablePublic.model_validate(r) for r in rows]
 
 
@@ -110,9 +114,16 @@ def event_logs(
 @router.post("/", response_model=CompensationEventPublic, status_code=status.HTTP_201_CREATED)
 def create_compensation(
     body: CompensationEventCreate,
+    ctx: ActingContext = Depends(get_acting_context),
     current: User = Depends(require_compensation_creator),
     db: Session = Depends(get_db),
 ) -> CompensationEventPublic:
+    if ctx.is_acting_as and not body.participant_user_ids:
+        body = body.model_copy(update={"participant_user_ids": [ctx.target.id]})
+    elif ctx.is_acting_as and ctx.target.id not in body.participant_user_ids:
+        body = body.model_copy(
+            update={"participant_user_ids": list({*body.participant_user_ids, ctx.target.id})}
+        )
     try:
         ev = comp_svc.create_compensation_event(db, current, body)
     except ValueError as e:

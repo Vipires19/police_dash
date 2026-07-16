@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
-from auth.dependencies import APPROVER_ROLES, get_current_approved_user, require_approver
+from auth.acting import ActingContext
+from auth.dependencies import APPROVER_ROLES, get_acting_context, require_approver
 from database.session import get_db
 from models.leaves import LeaveRequest
 from models.user import User
@@ -49,13 +50,19 @@ def _to_public(row: LeaveRequest) -> LeaveRequestPublic:
 def calendar(
     year: int | None = Query(default=None, ge=2000, le=2100),
     month: int | None = Query(default=None, ge=1, le=12),
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> LeaveCalendarResponse:
     now = datetime.now(_BR)
     y = year if year is not None else now.year
     m = month if month is not None else now.month
-    data = leave_svc.build_calendar(db, year=y, month=m, viewer=current, is_command=_is_command(current))
+    data = leave_svc.build_calendar(
+        db,
+        year=y,
+        month=m,
+        viewer=ctx.target,
+        is_command=_is_command(ctx.actor),
+    )
     return LeaveCalendarResponse.model_validate(data)
 
 
@@ -71,11 +78,11 @@ def pending_leaves(
 @router.post("/request", response_model=LeaveRequestPublic, status_code=status.HTTP_201_CREATED)
 def request_leave(
     body: LeaveRequestCreate,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> LeaveRequestPublic:
     try:
-        row = leave_svc.create_leave_request(db, current, body)
+        row = leave_svc.create_leave_request(db, ctx.target, body, actor=ctx.actor)
     except ValueError as e:
         msg = str(e)
         code = status.HTTP_409_CONFLICT if "Já existe" in msg else status.HTTP_400_BAD_REQUEST
@@ -115,11 +122,11 @@ def reject_leave(
 def cancel_leave(
     leave_id: int,
     body: LeaveDecisionBody,
-    current: User = Depends(get_current_approved_user),
+    ctx: ActingContext = Depends(get_acting_context),
     db: Session = Depends(get_db),
 ) -> LeaveRequestPublic:
     try:
-        row = leave_svc.cancel_leave(db, leave_id, current, body.motivo)
+        row = leave_svc.cancel_leave(db, leave_id, ctx.target, body.motivo, actor=ctx.actor)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     return _to_public(row)
