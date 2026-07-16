@@ -170,21 +170,30 @@ def format_qtr_var(published_at: datetime | str | None) -> str:
 
 
 def format_patente(patente: str) -> str:
-    raw = (patente or "").upper().replace("°", "").replace("º", "").replace(".", "")
-    return re.sub(r"\s+", "", raw)
+    """Normaliza patente para o padrão PM (mantém ordinal e espaços: 1º TEN)."""
+    raw = (patente or "").strip().upper()
+    raw = raw.replace("°", "º")
+    return re.sub(r"\s+", " ", raw)
 
 
 def member_line(member: dict[str, Any]) -> str:
-    patente = format_patente(member.get("patente", ""))
+    """Linha do policial no padrão PM: <PATENTE> PM <RE> <NOME_GUERRA>.
 
-    re = (member.get("re") or "").strip()
-
+    Consome exclusivamente campos do snapshot (nunca consulta users).
+    """
+    patente = format_patente(str(member.get("patente") or ""))
+    re_num = str(member.get("re") or "").strip()
     nome = (member.get("nome_guerra") or "").strip().upper()
 
-    if re:
-        return f"{patente} RE {re} {nome}"
-
-    return f"{patente} {nome}"
+    parts: list[str] = []
+    if patente:
+        parts.append(patente)
+    parts.append("PM")
+    if re_num:
+        parts.append(re_num)
+    if nome:
+        parts.append(nome)
+    return " ".join(parts)
 
 
 def format_observacoes(description: str | None) -> str:
@@ -252,7 +261,7 @@ def _format_team_block(
     lines.append("")
 
     for m in members:
-        line = member_line(m)   # <-- mudou aqui
+        line = member_line(m)
         if line:
             lines.append(line)
 

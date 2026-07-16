@@ -53,12 +53,27 @@ def test_mission_sort_order():
     assert ordered[4][0] == 3
 
 
-def test_member_line_compact_patente():
-    assert member_line({"patente": "1° TEN", "nome_guerra": "Carvalho"}) == "1TEN CARVALHO"
-    assert member_line({"patente": "CB", "nome_guerra": "Angelo"}) == "CB ANGELO"
+def test_member_line_pm_format():
     assert (
-        member_line({"patente": "CB", "re": "123456", "nome_guerra": "Angelo"})
-        == "CB RE 123456 ANGELO"
+        member_line({"patente": "1° TEN", "re": "144958-3", "nome_guerra": "Carvalho"})
+        == "1º TEN PM 144958-3 CARVALHO"
+    )
+    assert (
+        member_line({"patente": "CB", "re": "110071-8", "nome_guerra": "Ângelo"})
+        == "CB PM 110071-8 ÂNGELO"
+    )
+    assert (
+        member_line({"patente": "SD", "re": "155129-9", "nome_guerra": "Zanello"})
+        == "SD PM 155129-9 ZANELLO"
+    )
+    assert (
+        member_line({"patente": "SUBTEN", "re": "110170-6", "nome_guerra": "Gesiel"})
+        == "SUBTEN PM 110170-6 GESIEL"
+    )
+    # Sem RE no snapshot: ainda usa PM, sem a palavra "RE"
+    assert member_line({"patente": "CB", "nome_guerra": "Angelo"}) == "CB PM ANGELO"
+    assert " RE " not in member_line(
+        {"patente": "CB", "re": "110071-8", "nome_guerra": "Angelo"}
     )
 
 
@@ -107,6 +122,7 @@ def test_equipes_format_independent_qtr_per_team():
                 "members": [
                     {
                         "patente": "CB",
+                        "re": "110045-1",
                         "nome_guerra": "João",
                         "assigned_vehicle_prefixo": "I-03045",
                         "display_order": 1,
@@ -122,7 +138,12 @@ def test_equipes_format_independent_qtr_per_team():
                 "end_time": "18:00",
                 "start_datetime": "2026-07-14T06:00:00-03:00",
                 "members": [
-                    {"patente": "1° TEN", "nome_guerra": "Carvalho", "display_order": 1},
+                    {
+                        "patente": "1° TEN",
+                        "re": "144958-3",
+                        "nome_guerra": "Carvalho",
+                        "display_order": 1,
+                    },
                 ],
             },
         ],
@@ -134,7 +155,12 @@ def test_equipes_format_independent_qtr_per_team():
                 "start_time": "18:00",
                 "end_time": "06:00",
                 "members": [
-                    {"patente": "CB", "nome_guerra": "Felipe", "display_order": 1},
+                    {
+                        "patente": "CB",
+                        "re": "110071-8",
+                        "nome_guerra": "Felipe",
+                        "display_order": 1,
+                    },
                 ],
             }
         ],
@@ -149,7 +175,10 @@ def test_equipes_format_independent_qtr_per_team():
     assert "*🕘 QTR* Das 18:00 às 06:00" in block
     assert "22:00" not in block  # não usa horário de publicação
     assert "I-03027" in block
-    assert "1TEN CARVALHO" in block
+    assert "1º TEN PM 144958-3 CARVALHO" in block
+    assert "CB PM 110045-1 JOÃO" in block
+    assert "CB PM 110071-8 FELIPE" in block
+    assert " RE " not in block
 
 
 def test_render_has_no_global_qtr_block():

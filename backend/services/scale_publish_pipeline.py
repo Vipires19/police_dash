@@ -262,6 +262,7 @@ def _build_snapshot(
                         "user_id": m.user_id,
                         "patente": m.user.patente if m.user else "",
                         "nome_guerra": m.user.nome_guerra if m.user else "",
+                        "re": (m.user.re if m.user else None) or None,
                         "display_order": m.user.display_order if m.user else 0,
                         "assigned_vehicle_id": m.assigned_vehicle_id,
                         "assigned_vehicle_prefixo": (
