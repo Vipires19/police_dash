@@ -1,6 +1,6 @@
 """dejem multi-shift uniqueness + remove global QTR from template
 
-Revision ID: 026_dejem_multi_shift_and_template
+Revision ID: 026_dejem_multi_shift
 Revises: 025_dejem_shift_vehicle
 Create Date: 2026-07-16
 
@@ -13,7 +13,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = "026_dejem_multi_shift_and_template"
+revision: str = "026_dejem_multi_shift"
 down_revision: str | None = "025_dejem_shift_vehicle"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
