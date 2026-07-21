@@ -174,6 +174,42 @@ export interface ScaleTeamUpdatePayload {
 export const FT_MISSION_PRESETS = ["Tático Comando", "Supervisor Tático", "Força Tática"] as const;
 export const ROCAM_MISSION_PRESETS = ["ROCAM 1", "ROCAM 2", "ROCAM 3"] as const;
 
+/** Funções fixas — ordem = ordem da mensagem operacional. */
+export const FT_TEAM_ROLES = [
+  "Comandante da Equipe",
+  "Motorista",
+  "3º Homem",
+  "4º Homem",
+] as const;
+
+export const ROCAM_TEAM_ROLES = ["Comandante da Equipe", "Moto 2", "Moto 3"] as const;
+
+export type FtTeamRole = (typeof FT_TEAM_ROLES)[number];
+export type RocamTeamRole = (typeof ROCAM_TEAM_ROLES)[number];
+export type TeamRole = FtTeamRole | RocamTeamRole;
+
+export function teamRolesFor(modality: ScaleModality): readonly TeamRole[] {
+  return modality === "ROCAM" ? ROCAM_TEAM_ROLES : FT_TEAM_ROLES;
+}
+
+export function sortMembersByRole<T extends { role_label?: string | null; display_order?: number; nome_guerra?: string }>(
+  modality: ScaleModality,
+  members: T[],
+): T[] {
+  const order = new Map(teamRolesFor(modality).map((r, i) => [r, i]));
+  return [...members].sort((a, b) => {
+    const ai = a.role_label != null ? order.get(a.role_label as TeamRole) : undefined;
+    const bi = b.role_label != null ? order.get(b.role_label as TeamRole) : undefined;
+    if (ai != null && bi != null) return ai - bi;
+    if (ai != null) return -1;
+    if (bi != null) return 1;
+    const ao = a.display_order ?? 0;
+    const bo = b.display_order ?? 0;
+    if (ao !== bo) return ao - bo;
+    return (a.nome_guerra ?? "").localeCompare(b.nome_guerra ?? "", "pt-BR");
+  });
+}
+
 export interface ScaleExportResponse {
   text: string;
 }

@@ -88,6 +88,7 @@ def test_dejem_block_vehicle_reaches_message():
     raw = {
         "shift_id": 1,
         "title": "APOIO TÁTICO",
+        "shift_type": "FT",
         "vehicle_id": 10,
         "vehicle_prefixo": "I-03024",
         "start_time": "04:55:00",
@@ -98,6 +99,6 @@ def test_dejem_block_vehicle_reaches_message():
     assert block["vehicle_prefixo"] == "I-03024"
     assert block["start_time"] == "04:55"
     text = build_equipes_from_snapshot({"teams": [], "dejem_blocks": [block]})
-    assert "*🚔 APOIO TÁTICO*" in text
+    assert "*🚔 FORÇA TÁTICA DEJEM*" in text
     assert "*I-03024*" in text
     assert "*🕘 QTR* Das 04:55 às 12:55" in text

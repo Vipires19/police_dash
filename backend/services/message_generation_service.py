@@ -13,6 +13,7 @@ from datetime import date, datetime
 from typing import Any
 
 from models.user import OrganizationalUnit
+from schemas.service_scale import sort_members_by_role
 
 _PLACEHOLDER_RE = re.compile(r"\{\{\s*(\w+)\s*\}\}")
 
@@ -45,9 +46,12 @@ DEFAULT_TEMPLATE_BODY = """*💀 ESCALA DE SERVIÇO 💀*
 ━━━━━━━━━━━━━━━━━━━━━━
 {{equipes}}
 ━━━━━━━━━━━━━━━━━━━━━━
-*📢 OBSERVAÇÕES*
+*📢 MISSÕES*
 *{{observacoes}}*
 """
+
+_ICON_FT = "🚔"
+_ICON_ROCAM = "🏍️"
 
 _UNIT_TITLES: dict[str, str] = {
     OrganizationalUnit.FIRST_PLATOON.value: "1º PELOTÃO DE FORÇA TÁTICA",
@@ -92,7 +96,9 @@ def apply_template(body: str, variables: dict[str, str]) -> str:
     def repl(match: re.Match[str]) -> str:
         return variables.get(match.group(1), "")
 
-    text = _PLACEHOLDER_RE.sub(repl, body)
+    # Templates persistidos ainda podem trazer o rótulo legado.
+    normalized_body = body.replace("*📢 OBSERVAÇÕES*", "*📢 MISSÕES*")
+    text = _PLACEHOLDER_RE.sub(repl, normalized_body)
     out: list[str] = []
     blank_run = 0
     for line in text.splitlines():
@@ -106,7 +112,7 @@ def apply_template(body: str, variables: dict[str, str]) -> str:
             out.append(stripped)
     while out and out[-1] == "":
         out.pop()
-    # Remove separador final se observações vazias deixaram bloco órfão
+    # Remove separador final se missões vazias deixaram bloco órfão
     while out and out[-1].startswith("━"):
         out.pop()
         while out and out[-1] == "":
@@ -221,6 +227,14 @@ def format_observacoes(description: str | None) -> str:
     return "\n".join(bullets)
 
 
+def format_team_mission_notes(notes: str | None) -> list[str]:
+    """Bloco 📌 Missão da equipe. Vazio → nada (sem linhas em branco)."""
+    bullets = format_observacoes(notes)
+    if not bullets:
+        return []
+    return ["*📌 Missão*", "", *bullets.splitlines()]
+
+
 def mission_sort_key(mission_name: str, modality: str) -> tuple[int, str]:
     folded = _fold(mission_name.strip())
     mod = (modality or "").upper()
@@ -243,6 +257,69 @@ def _team_vehicle_prefixo(team: dict[str, Any]) -> str | None:
     return str(prefix).strip() if prefix else None
 
 
+def _modality_icon(modality: str) -> str:
+    if (modality or "").upper() == "ROCAM":
+        return _ICON_ROCAM
+    return _ICON_FT
+
+
+def _strip_dejem_origin_noise(label: str) -> str:
+    """Remove ruído de origem/legado do título do snapshot (DEJEM, EXTRA)."""
+    text = (label or "").strip().upper()
+    text = re.sub(r"\s+", " ", text)
+    changed = True
+    while changed and text:
+        changed = False
+        for suffix in (" DEJEM", " EXTRA", " FT EXTRA"):
+            if text.endswith(suffix):
+                text = text[: -len(suffix)].strip()
+                changed = True
+    if text in {"DEJEM", "EXTRA", "FT EXTRA", "FT"}:
+        return ""
+    return text
+
+
+def resolve_dejem_modality(block: dict[str, Any]) -> str:
+    """Modalidade operacional da equipe DEJEM (sem sufixo de origem).
+
+    DEJEM é origem, não modalidade. Fonte: `shift_type` e `title` do snapshot.
+    `shift_type` FT/ROCAM prevalece sobre títulos legados (ex.: APOIO TÁTICO / ROCAM EXTRA).
+    """
+    shift_type = str(block.get("shift_type") or "").strip().upper()
+    title = str(block.get("title") or "").strip()
+    core = _fold(_strip_dejem_origin_noise(title))
+
+    if shift_type == "ROCAM" or core.startswith("rocam") or core == "rocam":
+        return "ROCAM"
+    if shift_type == "FT":
+        return "FORÇA TÁTICA"
+    if "supervisor" in core:
+        return "SUPERVISOR TÁTICO"
+    if "tatico comando" in core:
+        return "TÁTICO COMANDO"
+    if "apoio tatico" in core:
+        return "APOIO TÁTICO"
+    if "forca tatica" in core:
+        return "FORÇA TÁTICA"
+
+    cleaned = _strip_dejem_origin_noise(title)
+    if cleaned:
+        return cleaned
+    # OUTROS / título legado «DEJEM»: modalidade padrão da companhia.
+    return "FORÇA TÁTICA"
+
+
+def resolve_dejem_display(block: dict[str, Any]) -> tuple[str, str]:
+    """Ícone + rótulo `<MODALIDADE> DEJEM` só na renderização.
+
+    Blocos em `dejem_blocks` têm origem DEJEM no snapshot; o sufixo é sempre
+    acrescentado. Não altera o snapshot.
+    """
+    modality = resolve_dejem_modality(block)
+    icon = _modality_icon(modality)
+    return icon, f"{modality} DEJEM"
+
+
 def _append_qtr_and_members(
     lines: list[str],
     *,
@@ -250,6 +327,7 @@ def _append_qtr_and_members(
     end: str | None,
     members: list[dict[str, Any]],
     with_assigned_vehicle: bool,
+    notes: str | None = None,
 ) -> None:
     if start and end:
         lines.append(f"*🕘 QTR* Das {start} às {end}")
@@ -258,6 +336,11 @@ def _append_qtr_and_members(
         line = member_line(m, with_assigned_vehicle=with_assigned_vehicle)
         if line:
             lines.append(line)
+    mission_block = format_team_mission_notes(notes)
+    if mission_block:
+        lines.append("")
+        lines.extend(mission_block)
+        lines.append("")
     lines.append(_TEAM_SEPARATOR)
     lines.append("")
 
@@ -273,10 +356,11 @@ class StandardTeamBlockStrategy:
         end: str | None,
         members: list[dict[str, Any]],
         team: dict[str, Any],
+        icon: str = _ICON_FT,
     ) -> list[str]:
         vehicle = _team_vehicle_prefixo(team)
         lines = [
-            f"*🚔 {label}*",
+            f"*{icon} {label}*",
             f"*{vehicle if vehicle else _VEHICLE_MISSING}*",
         ]
         _append_qtr_and_members(
@@ -285,6 +369,7 @@ class StandardTeamBlockStrategy:
             end=end,
             members=members,
             with_assigned_vehicle=False,
+            notes=team.get("notes"),
         )
         return lines
 
@@ -300,15 +385,16 @@ class RocamTeamBlockStrategy:
         end: str | None,
         members: list[dict[str, Any]],
         team: dict[str, Any],
+        icon: str = _ICON_ROCAM,
     ) -> list[str]:
-        _ = team
-        lines = [f"*🚔 {label}*"]
+        lines = [f"*{icon} {label}*"]
         _append_qtr_and_members(
             lines,
             start=start,
             end=end,
             members=members,
             with_assigned_vehicle=True,
+            notes=team.get("notes"),
         )
         return lines
 
@@ -326,6 +412,8 @@ def _format_team_block(
     start: str | None,
     end: str | None,
     members: list[dict[str, Any]],
+    icon: str = _ICON_FT,
+    notes: str | None = None,
 ) -> list[str]:
     """Compat: blocos DEJEM e chamadas legadas (estratégia padrão)."""
     return StandardTeamBlockStrategy().render(
@@ -333,7 +421,8 @@ def _format_team_block(
         start=start,
         end=end,
         members=members,
-        team={"vehicle_prefixo": vehicle},
+        team={"vehicle_prefixo": vehicle, "notes": notes},
+        icon=icon,
     )
 
 
@@ -353,12 +442,7 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
         if modality == "ROCAM" and not mission.startswith("ROCAM"):
             mission = f"ROCAM {mission}"
         members = list(team.get("members") or [])
-        members.sort(
-            key=lambda m: (
-                int(m.get("display_order") or 0),
-                str(m.get("nome_guerra") or "").lower(),
-            )
-        )
+        members = sort_members_by_role(modality, members)
         start, end = resolve_team_qtr(team)
         strategy = get_team_block_strategy(modality)
         lines.extend(
@@ -368,12 +452,12 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
                 end=end,
                 members=members,
                 team=team,
+                icon=_modality_icon(modality),
             )
         )
 
     for block in snapshot.get("dejem_blocks") or []:
-        title = str(block.get("title") or "DEJEM").strip()
-        label = title.upper()
+        icon, label = resolve_dejem_display(block)
         members = list(block.get("members") or [])
         members.sort(
             key=lambda m: (
@@ -383,6 +467,7 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
         )
         vehicle = block.get("vehicle_prefixo")
         start, end = resolve_team_qtr(block)
+        notes = block.get("notes")
         lines.extend(
             _format_team_block(
                 label=label,
@@ -390,6 +475,8 @@ def build_equipes_from_snapshot(snapshot: dict[str, Any]) -> str:
                 start=start,
                 end=end,
                 members=members,
+                icon=icon,
+                notes=str(notes) if notes else None,
             )
         )
 

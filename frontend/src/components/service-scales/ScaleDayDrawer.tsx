@@ -6,6 +6,8 @@ import { ScaleVersionsPanel } from "./ScaleVersionsPanel";
 import {
   FT_MISSION_PRESETS,
   ROCAM_MISSION_PRESETS,
+  sortMembersByRole,
+  teamRolesFor,
   type ScaleDayDetailResponse,
   type ScaleModality,
   type ScaleTeamMemberInput,
@@ -25,6 +27,15 @@ import {
   gatherScaleUsage,
   isUserAvailable,
 } from "./scaleAvailability";
+import {
+  assignedUserIds,
+  emptyRoleAssignments,
+  membersToRoleAssignments,
+  membersToRoleBikes,
+  setRoleUser,
+  type RoleAssignments,
+  type RoleBikes,
+} from "./teamRoles";
 
 type PlatoonFilter = "ALL" | OrganizationalUnit;
 
@@ -166,8 +177,8 @@ export function ScaleDayDrawer({
   const [notes, setNotes] = useState("");
   const [startAt, setStartAt] = useState(() => toLocalInputFromDate(isoDate, 6));
   const [endAt, setEndAt] = useState(() => toLocalInputFromDate(isoDate, 18));
-  const [selectedMembers, setSelectedMembers] = useState<number[]>([]);
-  const [roCamBikes, setRoCamBikes] = useState<Record<number, number>>({});
+  const [roleAssignments, setRoleAssignments] = useState<RoleAssignments>(() => emptyRoleAssignments("FT"));
+  const [roleBikes, setRoleBikes] = useState<RoleBikes>({});
   const [exportOpen, setExportOpen] = useState(false);
   const [publishPreviewOpen, setPublishPreviewOpen] = useState(false);
   const [platoonFilter, setPlatoonFilter] = useState<PlatoonFilter>(() =>
@@ -204,6 +215,9 @@ export function ScaleDayDrawer({
 
   const roCamMotos = useMemo(() => detail?.vehicles_ro_cam ?? [], [detail?.vehicles_ro_cam]);
 
+  const selectedMembers = useMemo(() => assignedUserIds(roleAssignments), [roleAssignments]);
+  const teamRoleList = useMemo(() => teamRolesFor(modality), [modality]);
+
   const { availableRoster, awayRoster } = useMemo(() => {
     const roster = detail?.staff_roster ?? [];
     // Já selecionados (ex.: edição) permanecem no grupo disponível para visualização.
@@ -227,7 +241,6 @@ export function ScaleDayDrawer({
   );
 
   const missionName = missionPreset === "__custom__" ? missionCustom.trim() : missionPreset;
-  const maxMembers = modality === "FT" ? 4 : 3;
   const isEdit = editingTeam !== null;
 
   const resetForm = () => {
@@ -240,8 +253,8 @@ export function ScaleDayDrawer({
     setNotes("");
     setStartAt(toLocalInputFromDate(isoDate, 6));
     setEndAt(toLocalInputFromDate(isoDate, 18));
-    setSelectedMembers([]);
-    setRoCamBikes({});
+    setRoleAssignments(emptyRoleAssignments("FT"));
+    setRoleBikes({});
   };
 
   const openAddForm = () => {
@@ -260,12 +273,8 @@ export function ScaleDayDrawer({
     setNotes(team.notes ?? "");
     setStartAt(toLocalInput(team.start_datetime));
     setEndAt(toLocalInput(team.end_datetime));
-    setSelectedMembers(team.members.map((m) => m.user_id));
-    const bikes: Record<number, number> = {};
-    for (const m of team.members) {
-      if (m.assigned_vehicle_id) bikes[m.user_id] = m.assigned_vehicle_id;
-    }
-    setRoCamBikes(bikes);
+    setRoleAssignments(membersToRoleAssignments(team));
+    setRoleBikes(membersToRoleBikes(team));
   };
 
   useEffect(() => {
@@ -277,23 +286,26 @@ export function ScaleDayDrawer({
     setObsDraft(scale?.description ?? "");
   }, [scale?.id, scale?.fardamento, scale?.description]);
 
-  const toggleMember = (userId: number) => {
-    setSelectedMembers((prev) => {
-      if (prev.includes(userId)) return prev.filter((id) => id !== userId);
-      if (prev.length >= maxMembers) return prev;
-      return [...prev, userId];
-    });
-  };
-
   const buildPayload = (): TeamFormPayload | null => {
     if (!missionName || selectedMembers.length === 0) return null;
     if (modality === "FT" && vehicleId === "") return null;
-    if (modality === "ROCAM" && selectedMembers.some((uid) => !roCamBikes[uid])) return null;
+    if (modality === "ROCAM") {
+      for (const role of teamRoleList) {
+        const uid = roleAssignments[role];
+        if (typeof uid === "number" && !roleBikes[role]) return null;
+      }
+    }
 
-    const members: ScaleTeamMemberInput[] = selectedMembers.map((uid) => ({
-      user_id: uid,
-      assigned_vehicle_id: modality === "ROCAM" ? roCamBikes[uid]! : null,
-    }));
+    const members: ScaleTeamMemberInput[] = teamRoleList
+      .filter((role) => typeof roleAssignments[role] === "number")
+      .map((role) => ({
+        user_id: roleAssignments[role] as number,
+        role_label: role,
+        assigned_vehicle_id:
+          modality === "ROCAM" ? (roleBikes[role] as number) : null,
+      }));
+
+    if (members.length === 0) return null;
 
     return {
       modality,
@@ -492,8 +504,8 @@ export function ScaleDayDrawer({
                       onClick={() => {
                         setModality(m);
                         setVehicleId("");
-                        setSelectedMembers([]);
-                        setRoCamBikes({});
+                        setRoleAssignments(emptyRoleAssignments(m));
+                        setRoleBikes({});
                       }}
                       className={`flex-1 rounded py-1.5 text-xs font-semibold ${modality === m ? "bg-zinc-100 text-zinc-900" : "border border-zinc-700 text-zinc-400"} ${isEdit ? "opacity-60" : ""}`}
                     >
@@ -561,7 +573,7 @@ export function ScaleDayDrawer({
                 {detail?.staff_roster && (
                   <div className="border-t border-zinc-800/80 pt-3">
                     <p className="mb-2 text-xs uppercase tracking-wider text-zinc-500">
-                      Efetivo (máx. {maxMembers})
+                      Funções da equipe ({teamRoleList.length})
                     </p>
 
                     <div className="mb-3 rounded-lg border border-zinc-800/80 bg-black/30 px-3 py-2.5">
@@ -606,9 +618,6 @@ export function ScaleDayDrawer({
                       </div>
                     </div>
 
-                    <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-400/90">
-                      Efetivo disponível
-                    </p>
                     <div className="mb-2">
                       <label
                         htmlFor="scale-platoon-filter"
@@ -641,53 +650,64 @@ export function ScaleDayDrawer({
                         )}
                       </select>
                     </div>
-                    <ul className="max-h-40 space-y-1 overflow-y-auto">
-                      {filteredAvailableRoster.length === 0 && (
-                        <li className="px-2 py-1 text-xs text-zinc-600">Nenhum policial disponível nesta data.</li>
-                      )}
-                      {filteredAvailableRoster.map((s) => {
-                        const isAway = s.absences.length > 0;
-                        const freeForTeam =
-                          isUserAvailable(s.user_id, usage) || selectedMembers.includes(s.user_id);
-                        const on = selectedMembers.includes(s.user_id);
-                        const canToggle = on || (!isAway && freeForTeam);
-                        const motoOptions = filterRoCamMotos(roCamMotos, usage, roCamBikes[s.user_id]);
+
+                    <div className="space-y-3">
+                      {teamRoleList.map((role) => {
+                        const currentUid = roleAssignments[role];
+                        let options = filteredAvailableRoster.filter((s) => {
+                          const free =
+                            isUserAvailable(s.user_id, usage) || selectedMembers.includes(s.user_id);
+                          if (typeof currentUid === "number" && s.user_id === currentUid) return true;
+                          return free && !selectedMembers.includes(s.user_id);
+                        });
+                        if (typeof currentUid === "number" && !options.some((s) => s.user_id === currentUid)) {
+                          const current = (detail?.staff_roster ?? []).find((s) => s.user_id === currentUid);
+                          if (current) options = [current, ...options];
+                        }
+                        const motoOptions =
+                          modality === "ROCAM" && typeof currentUid === "number"
+                            ? filterRoCamMotos(
+                                roCamMotos,
+                                usage,
+                                typeof roleBikes[role] === "number" ? roleBikes[role] : null,
+                              )
+                            : [];
                         return (
-                          <li key={s.user_id} className={!freeForTeam && !on ? "opacity-40" : ""}>
-                            <button
-                              type="button"
-                              disabled={!canToggle}
-                              onClick={() => canToggle && toggleMember(s.user_id)}
-                              className={`flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-sm ${on ? "bg-zinc-800 text-zinc-50" : "text-zinc-300 hover:bg-zinc-900"}`}
+                          <div key={role} className="space-y-1.5">
+                            <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                              {role}
+                            </label>
+                            <select
+                              value={currentUid === "" ? "" : String(currentUid)}
+                              onChange={(e) => {
+                                const raw = e.target.value;
+                                const nextUid = raw ? Number(raw) : "";
+                                setRoleAssignments((prev) => setRoleUser(prev, role, nextUid));
+                                if (nextUid === "") {
+                                  setRoleBikes((prev) => ({ ...prev, [role]: "" }));
+                                }
+                              }}
+                              className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-zinc-100"
                             >
-                              <span>
-                                {s.patente} {s.nome_guerra}
-                              </span>
-                              <span className="flex gap-1">
-                                {!freeForTeam && !on && (
-                                  <span className="rounded px-1 text-[9px] uppercase text-zinc-500">
-                                    Em outra equipe
-                                  </span>
-                                )}
-                                {isAway &&
-                                  s.absences.map((a) => (
-                                    <span
-                                      key={a.kind}
-                                      className={`rounded px-1 text-[9px] font-semibold uppercase ring-1 ${absenceBadgeClass(a.kind)}`}
-                                    >
-                                      {absenceDisplayLabel(a.kind, a.label)}
-                                    </span>
-                                  ))}
-                              </span>
-                            </button>
-                            {modality === "ROCAM" && on && (
+                              <option value="">Selecionar policial</option>
+                              {options.map((s) => (
+                                <option key={s.user_id} value={s.user_id}>
+                                  {s.patente} {s.nome_guerra}
+                                </option>
+                              ))}
+                            </select>
+                            {modality === "ROCAM" && typeof currentUid === "number" && (
                               <select
-                                className="mt-1 w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-xs"
-                                value={roCamBikes[s.user_id] ?? ""}
+                                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"
+                                value={
+                                  roleBikes[role] === "" || roleBikes[role] == null
+                                    ? ""
+                                    : String(roleBikes[role])
+                                }
                                 onChange={(e) =>
-                                  setRoCamBikes((prev) => ({
+                                  setRoleBikes((prev) => ({
                                     ...prev,
-                                    [s.user_id]: Number(e.target.value),
+                                    [role]: e.target.value ? Number(e.target.value) : "",
                                   }))
                                 }
                               >
@@ -699,10 +719,10 @@ export function ScaleDayDrawer({
                                 ))}
                               </select>
                             )}
-                          </li>
+                          </div>
                         );
                       })}
-                    </ul>
+                    </div>
 
                     <>
                       <div
@@ -769,7 +789,11 @@ export function ScaleDayDrawer({
                       selectedMembers.length === 0 ||
                       !missionName ||
                       (modality === "FT" && vehicleId === "") ||
-                      (modality === "ROCAM" && selectedMembers.some((uid) => !roCamBikes[uid]))
+                      (modality === "ROCAM" &&
+                        teamRoleList.some(
+                          (role) =>
+                            typeof roleAssignments[role] === "number" && !roleBikes[role],
+                        ))
                     }
                     onClick={submitForm}
                     className="flex-1 rounded bg-amber-600/90 py-2 text-sm font-medium text-zinc-950 disabled:opacity-40"
@@ -818,8 +842,13 @@ export function ScaleDayDrawer({
                     )}
                   </div>
                   <ul className="mt-3 space-y-1.5 border-t border-zinc-800/80 pt-3">
-                    {team.members.map((m) => (
+                    {sortMembersByRole(team.modality, team.members).map((m) => (
                       <li key={m.id} className="text-sm text-zinc-200">
+                        {m.role_label && (
+                          <span className="mr-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+                            {m.role_label}
+                          </span>
+                        )}
                         {team.modality === "ROCAM" ? (
                           <span>
                             {m.patente} {m.nome_guerra}

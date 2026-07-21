@@ -29,13 +29,13 @@ from models.service_scale import (
     ServiceScaleVersion,
 )
 from models.user import User
-from schemas.service_scale import ScaleTeamMemberInput
+from schemas.service_scale import ScaleTeamMemberInput, sort_members_by_role
 from services import dejem_map_service as dejem_map
 from services.service_scale_service import (
     _BR,
     _append_scale_log,
     _load_scale,
-    _validate_members,
+    _prepare_members,
     _validate_scale_uniqueness,
 )
 
@@ -79,7 +79,7 @@ def _validate_structure(scale: ServiceScale) -> list[str]:
                 )
                 for m in team.members
             ]
-            _validate_members(team.modality, inputs)
+            _prepare_members(team.modality, inputs)
         except ValueError as e:
             errors.append(f"Equipe «{team.mission_name}»: {e}")
     return errors
@@ -257,21 +257,24 @@ def _build_snapshot(
                 # Horário operacional da equipe (fonte da verdade para QTR na mensagem)
                 "start_time": start_time,
                 "end_time": end_time,
-                "members": [
-                    {
-                        "user_id": m.user_id,
-                        "patente": m.user.patente if m.user else "",
-                        "nome_guerra": m.user.nome_guerra if m.user else "",
-                        "re": (m.user.re if m.user else None) or None,
-                        "display_order": m.user.display_order if m.user else 0,
-                        "assigned_vehicle_id": m.assigned_vehicle_id,
-                        "assigned_vehicle_prefixo": (
-                            m.assigned_vehicle.prefixo if m.assigned_vehicle else None
-                        ),
-                        "role_label": m.role_label,
-                    }
-                    for m in team.members
-                ],
+                "members": sort_members_by_role(
+                    team.modality,
+                    [
+                        {
+                            "user_id": m.user_id,
+                            "patente": m.user.patente if m.user else "",
+                            "nome_guerra": m.user.nome_guerra if m.user else "",
+                            "re": (m.user.re if m.user else None) or None,
+                            "display_order": m.user.display_order if m.user else 0,
+                            "assigned_vehicle_id": m.assigned_vehicle_id,
+                            "assigned_vehicle_prefixo": (
+                                m.assigned_vehicle.prefixo if m.assigned_vehicle else None
+                            ),
+                            "role_label": m.role_label,
+                        }
+                        for m in team.members
+                    ],
+                ),
             }
         )
     unit = None

@@ -36,6 +36,9 @@ from schemas.service_scale import (
     ScaleTeamUpdate,
     ServiceScaleCreate,
     ServiceScaleUpdate,
+    normalize_member_roles,
+    sort_members_by_role,
+    team_roles_for,
 )
 
 _BR = ZoneInfo("America/Sao_Paulo")
@@ -151,12 +154,34 @@ def _validate_members(modality: ScaleModality, members: list[ScaleTeamMemberInpu
     ids = [m.user_id for m in members]
     if len(ids) != len(set(ids)):
         raise ValueError("Policiais duplicados na equipe")
+    allowed = set(team_roles_for(modality))
+    labels = [(m.role_label or "").strip() or None for m in members]
+    provided = [lb for lb in labels if lb]
+    for lb in provided:
+        if lb not in allowed:
+            raise ValueError(f"Função inválida para {modality.value}: {lb}")
+    if len(provided) != len(set(provided)):
+        raise ValueError("Funções duplicadas na equipe")
     if modality == ScaleModality.ROCAM:
         moto_ids = [m.assigned_vehicle_id for m in members]
         if any(mid is None for mid in moto_ids):
             raise ValueError("Cada policial ROCAM deve ter uma moto vinculada")
         if len(moto_ids) != len(set(moto_ids)):
             raise ValueError("Motos duplicadas na equipe ROCAM")
+
+
+def _prepare_members(
+    modality: ScaleModality, members: list[ScaleTeamMemberInput]
+) -> list[ScaleTeamMemberInput]:
+    normalized = normalize_member_roles(modality, members)
+    _validate_members(modality, normalized)
+    return sort_members_by_role(
+        modality,
+        normalized,
+        role_attr="role_label",
+        fallback_order_attr="user_id",
+        name_attr="user_id",
+    )
 
 
 def _gather_scale_usage(
@@ -284,7 +309,7 @@ def _set_team_members(
     scale_date: date,
     actor_id: int,
 ) -> list[str]:
-    _validate_members(team.modality, members)
+    members = _prepare_members(team.modality, members)
     for m in members:
         u = db.get(User, m.user_id)
         if not u or u.status != UserStatus.APPROVED or not u.is_active:
@@ -486,13 +511,13 @@ def add_team(db: Session, scale_id: int, actor: User, payload: ScaleTeamCreate) 
         raise ValueError("Escala não encontrada")
     team_vehicle_id = None if payload.modality == ScaleModality.ROCAM else payload.vehicle_id
     _validate_vehicle(payload.modality, team_vehicle_id, db)
-    _validate_members(payload.modality, payload.members)
+    members = _prepare_members(payload.modality, payload.members)
     _validate_scale_uniqueness(
         row,
         exclude_team_id=None,
         modality=payload.modality,
         vehicle_id=team_vehicle_id,
-        members=payload.members,
+        members=members,
     )
     team = ScaleTeam(
         service_scale_id=row.id,
@@ -505,7 +530,7 @@ def add_team(db: Session, scale_id: int, actor: User, payload: ScaleTeamCreate) 
     )
     db.add(team)
     db.flush()
-    cancel_notes = _set_team_members(db, team, payload.members, row.scale_date, actor.id)
+    cancel_notes = _set_team_members(db, team, members, row.scale_date, actor.id)
     desc = f"Equipe {payload.modality.value} — {payload.mission_name}"
     if cancel_notes:
         desc += f" | {'; '.join(cancel_notes)}"
@@ -550,7 +575,7 @@ def update_team(db: Session, team_id: int, actor: User, payload: ScaleTeamUpdate
             for m in team.members
         ]
     _validate_vehicle(modality, vehicle_id, db)
-    _validate_members(modality, members_input)
+    members_input = _prepare_members(modality, members_input)
     _validate_scale_uniqueness(
         row,
         exclude_team_id=team.id,
@@ -572,7 +597,7 @@ def update_team(db: Session, team_id: int, actor: User, payload: ScaleTeamUpdate
         raise ValueError("Horário final deve ser posterior ao inicial")
     cancel_notes: list[str] = []
     if payload.members is not None:
-        cancel_notes = _set_team_members(db, team, payload.members, row.scale_date, actor.id)
+        cancel_notes = _set_team_members(db, team, members_input, row.scale_date, actor.id)
     _append_scale_log(
         db,
         scale_id=row.id,
@@ -594,15 +619,15 @@ def update_team_members(
     row = _load_scale(db, team.service_scale_id)
     if not row:
         raise ValueError("Escala não encontrada")
-    _validate_members(team.modality, payload.members)
+    members = _prepare_members(team.modality, payload.members)
     _validate_scale_uniqueness(
         row,
         exclude_team_id=team.id,
         modality=team.modality,
         vehicle_id=team.vehicle_id,
-        members=payload.members,
+        members=members,
     )
-    cancel_notes = _set_team_members(db, team, payload.members, row.scale_date, actor.id)
+    cancel_notes = _set_team_members(db, team, members, row.scale_date, actor.id)
     desc = f"Efetivo da equipe {team.modality.value} — {team.mission_name} atualizado"
     if cancel_notes:
         desc += f" | {'; '.join(cancel_notes)}"

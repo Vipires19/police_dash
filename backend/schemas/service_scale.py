@@ -12,11 +12,86 @@ ROCAM_MISSION_PRESETS = ("ROCAM 1", "ROCAM 2", "ROCAM 3")
 MAX_FT_MEMBERS = 4
 MAX_ROCAM_MEMBERS = 3
 
+# Funções fixas da equipe (ordem = ordem da mensagem operacional).
+FT_TEAM_ROLES: tuple[str, ...] = (
+    "Comandante da Equipe",
+    "Motorista",
+    "3º Homem",
+    "4º Homem",
+)
+ROCAM_TEAM_ROLES: tuple[str, ...] = (
+    "Comandante da Equipe",
+    "Moto 2",
+    "Moto 3",
+)
+
+
+def team_roles_for(modality: ScaleModality | str) -> tuple[str, ...]:
+    key = modality.value if isinstance(modality, ScaleModality) else str(modality).upper()
+    if key == ScaleModality.ROCAM.value:
+        return ROCAM_TEAM_ROLES
+    return FT_TEAM_ROLES
+
+
+def role_sort_index(modality: ScaleModality | str, role_label: str | None) -> int | None:
+    """Índice da função na ordem operacional; None se desconhecida/ausente."""
+    if not role_label:
+        return None
+    roles = team_roles_for(modality)
+    try:
+        return roles.index(role_label)
+    except ValueError:
+        return None
+
 
 class ScaleTeamMemberInput(BaseModel):
     user_id: int
     assigned_vehicle_id: int | None = None
     role_label: str | None = Field(default=None, max_length=64)
+
+
+def normalize_member_roles(
+    modality: ScaleModality | str,
+    members: list[ScaleTeamMemberInput],
+) -> list[ScaleTeamMemberInput]:
+    """Garante role_label estável. Se todos vazios, atribui pela ordem recebida (legado)."""
+    if not members:
+        return members
+    roles = team_roles_for(modality)
+    if all(not (m.role_label or "").strip() for m in members):
+        out: list[ScaleTeamMemberInput] = []
+        for i, m in enumerate(members):
+            label = roles[i] if i < len(roles) else None
+            out.append(m.model_copy(update={"role_label": label}))
+        return out
+    return members
+
+
+def sort_members_by_role(
+    modality: ScaleModality | str,
+    members: list,
+    *,
+    role_attr: str = "role_label",
+    fallback_order_attr: str = "display_order",
+    name_attr: str = "nome_guerra",
+) -> list:
+    """Ordena integrantes pela função; legado sem role cai em antiguidade/nome."""
+
+    def _get(obj: object, key: str):
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return getattr(obj, key, None)
+
+    def key_fn(m: object) -> tuple:
+        role = _get(m, role_attr)
+        idx = role_sort_index(modality, str(role).strip() if role else None)
+        if idx is not None:
+            return (0, idx, 0, "")
+        fallback = int(_get(m, fallback_order_attr) or 0)
+        name = str(_get(m, name_attr) or "").lower()
+        return (1, fallback, 0, name)
+
+    return sorted(members, key=key_fn)
 
 
 class ScaleTeamMemberPublic(BaseModel):

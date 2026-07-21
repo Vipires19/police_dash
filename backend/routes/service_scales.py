@@ -43,6 +43,7 @@ from schemas.service_scale import (
     ServiceScalePublic,
     ServiceScaleUpdate,
     StaffRosterEntry,
+    sort_members_by_role,
 )
 from services import scale_export_service as export_svc
 from services import scale_publish_pipeline as publish_pipe
@@ -82,6 +83,7 @@ def _member_public(m: ScaleTeamMember) -> ScaleTeamMemberPublic:
 
 def _team_public(t: ScaleTeam) -> ScaleTeamPublic:
     v = t.vehicle
+    members = sort_members_by_role(t.modality, [_member_public(m) for m in t.members])
     return ScaleTeamPublic(
         id=t.id,
         modality=t.modality,
@@ -92,7 +94,7 @@ def _team_public(t: ScaleTeam) -> ScaleTeamPublic:
         end_datetime=t.end_datetime,
         mission_name=t.mission_name,
         notes=t.notes,
-        members=[_member_public(m) for m in t.members],
+        members=members,
     )
 
 
