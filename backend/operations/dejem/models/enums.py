@@ -68,16 +68,8 @@ class TeamStatus(str, enum.Enum):
     READY = "READY"
 
 
-class AssignmentRole(str, enum.Enum):
-    """Papel do policial na equipe (paridade Escala Operacional)."""
-
-    MEMBER = "MEMBER"
-    COMMANDER = "COMMANDER"
-    DRIVER = "DRIVER"
-    THIRD_MAN = "THIRD_MAN"
-    FOURTH_MAN = "FOURTH_MAN"
-    MOTO_2 = "MOTO_2"
-    MOTO_3 = "MOTO_3"
+# Reexporta o enum canônico (models.dejem) — evita ciclo models ↔ operations.
+from models.dejem import AssignmentRole as AssignmentRole  # noqa: E402
 
 
 class PublishedScheduleStatus(str, enum.Enum):

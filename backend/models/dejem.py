@@ -18,7 +18,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.base import Base
-from operations.dejem.models.enums import AssignmentRole
 
 
 class DejemMonthStatus(str, enum.Enum):
@@ -48,6 +47,22 @@ class ParticipationType(str, enum.Enum):
     NORMAL = "NORMAL"
     EXTRAORDINARY = "EXTRAORDINARY"
     SUBSTITUTION = "SUBSTITUTION"
+
+
+class AssignmentRole(str, enum.Enum):
+    """Papel do policial na equipe (paridade Escala Operacional).
+
+    Tipo PG compartilhado: ``dejemassignmentrole`` (OperationalAssignment + DejemParticipant).
+    Definido aqui para evitar import circular com ``operations.dejem``.
+    """
+
+    MEMBER = "MEMBER"
+    COMMANDER = "COMMANDER"
+    DRIVER = "DRIVER"
+    THIRD_MAN = "THIRD_MAN"
+    FOURTH_MAN = "FOURTH_MAN"
+    MOTO_2 = "MOTO_2"
+    MOTO_3 = "MOTO_3"
 
 
 class ParticipantStatus(str, enum.Enum):
