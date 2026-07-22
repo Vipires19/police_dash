@@ -349,22 +349,42 @@ export function DejemShiftsPage() {
       )}
 
       {dashboard && (
-        <section className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-          {[
-            ["Escalas Abertas", dashboard.open_shifts],
-            ["Escalas Fechadas", dashboard.closed_shifts],
-            ["Vagas Livres", dashboard.total_available],
-            ["Vagas Ocupadas", dashboard.total_filled],
-            ["Saldo Médio Restante", Number(dashboard.avg_remaining_slots ?? 0).toFixed(1)],
-          ].map(([label, value]) => (
-            <div
-              key={String(label)}
-              className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3"
-            >
-              <p className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</p>
-              <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-50">{value}</p>
-            </div>
-          ))}
+        <section className="mb-6 space-y-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {[
+              ["Total de vagas", dashboard.campaign_total_slots ?? 0],
+              ["Vagas abertas", dashboard.opened_slots ?? dashboard.total_capacity],
+              [
+                "Vagas restantes para abertura",
+                dashboard.remaining_opening_slots ?? 0,
+              ],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3"
+              >
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-50">{value}</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            {[
+              ["Escalas Abertas", dashboard.open_shifts],
+              ["Escalas Fechadas", dashboard.closed_shifts],
+              ["Vagas Livres", dashboard.total_available],
+              ["Vagas Ocupadas", dashboard.total_filled],
+              ["Saldo Médio Restante", Number(dashboard.avg_remaining_slots ?? 0).toFixed(1)],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3"
+              >
+                <p className="text-[11px] uppercase tracking-wider text-zinc-500">{label}</p>
+                <p className="mt-1 text-xl font-semibold tabular-nums text-zinc-50">{value}</p>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
@@ -418,6 +438,7 @@ export function DejemShiftsPage() {
             onAddParticipant={onAddParticipant}
             onRemoveParticipant={onRemoveParticipant}
             onCloseShift={onCloseShift}
+            remainingOpeningSlots={dashboard?.remaining_opening_slots ?? null}
           />
         </>
       )}

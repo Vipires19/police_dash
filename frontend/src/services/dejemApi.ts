@@ -26,6 +26,13 @@ import type {
   DejemEnrollmentResult,
   DejemMyDayDetail,
   DejemParticipantAdminRow,
+  DejemOfferEvent,
+  DejemOfferEventCreatePayload,
+  DejemOfferAvailable,
+  DejemIncrementalPreview,
+  DejemIncrementalRequest,
+  DejemIncrementalResult,
+  DejemAllocationSummary,
 } from "@/types/dejem";
 
 export async function listDejemMonths(token: string): Promise<DejemMonthPublic[]> {
@@ -374,4 +381,82 @@ export async function closeDejemShift(
     method: "POST",
     token,
   });
+}
+
+/* --- Operations DEJEM: offers + incremental (sem novos endpoints) --- */
+
+export async function listDejemOfferHistory(
+  token: string,
+  campaignId: number,
+): Promise<DejemOfferEvent[]> {
+  return apiFetch<DejemOfferEvent[]>(
+    `/operations/dejem/offers/history?campaign_id=${campaignId}`,
+    { method: "GET", token },
+  );
+}
+
+export async function getDejemOfferAvailable(
+  token: string,
+  campaignId: number,
+): Promise<DejemOfferAvailable> {
+  return apiFetch<DejemOfferAvailable>(
+    `/operations/dejem/offers/available?campaign_id=${campaignId}`,
+    { method: "GET", token },
+  );
+}
+
+export async function createDejemOfferEvent(
+  token: string,
+  payload: DejemOfferEventCreatePayload,
+): Promise<DejemOfferEvent> {
+  return apiFetch<DejemOfferEvent>("/operations/dejem/offers/", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getDejemIncrementalPreview(
+  token: string,
+  campaignId: number,
+): Promise<DejemIncrementalPreview> {
+  return apiFetch<DejemIncrementalPreview>(
+    `/operations/dejem/allocations/preview?campaign_id=${campaignId}`,
+    { method: "GET", token },
+  );
+}
+
+export async function runDejemIncremental(
+  token: string,
+  payload: DejemIncrementalRequest,
+): Promise<DejemIncrementalResult> {
+  return apiFetch<DejemIncrementalResult>("/operations/dejem/allocations/incremental", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function redistributeDejemRemaining(
+  token: string,
+  payload: DejemIncrementalRequest,
+): Promise<DejemIncrementalResult> {
+  return apiFetch<DejemIncrementalResult>(
+    "/operations/dejem/allocations/redistribute-remaining",
+    {
+      method: "POST",
+      token,
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export async function getDejemAllocationSummary(
+  token: string,
+  campaignId: number,
+): Promise<DejemAllocationSummary> {
+  return apiFetch<DejemAllocationSummary>(
+    `/operations/dejem/allocations/allocation-summary?campaign_id=${campaignId}`,
+    { method: "GET", token },
+  );
 }

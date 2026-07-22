@@ -39,6 +39,24 @@ from models.dejem import (  # noqa: F401
     DejemShift,
     DejemShiftTemplate,
 )
+from operations.dejem.models.credit import Credit  # noqa: F401
+from operations.dejem.models.offer_event import OfferEvent  # noqa: F401
+from operations.dejem.models.campaign_audit import CampaignStatusAudit  # noqa: F401
+from operations.dejem.models.allocation_audit import (  # noqa: F401
+    AllocationAudit,
+    CreditStatusAudit,
+)
+from operations.dejem.models.shift_slot import ShiftSlot  # noqa: F401
+from operations.dejem.models.reservation_audit import CreditReservationAudit  # noqa: F401
+from operations.dejem.models.operational_team import (  # noqa: F401
+    OperationalAssignment,
+    OperationalTeam,
+    OperationalTeamAudit,
+)
+from operations.dejem.models.published_schedule import (  # noqa: F401
+    PublishedSchedule,
+    PublishedScheduleAudit,
+)
 from models.operational_publication import (  # noqa: F401
     OperationalPublication,
     OperationalPublicationAudit,

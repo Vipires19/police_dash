@@ -13,7 +13,7 @@ Etapas:
 from __future__ import annotations
 
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -21,6 +21,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from core.time_intervals import (
+    combine_shift_window,
+    ensure_aware,
+    format_hhmm,
+    intervals_overlap,
+    overlap_interval,
+)
 from models.dejem import DejemShiftStatus
 from models.service_scale import (
     ScaleLogAction,
@@ -159,32 +166,58 @@ def _validate_uniqueness_via_existing_rules(scale: ServiceScale) -> list[str]:
 
 
 def _validate_dejem_officer_conflicts(db: Session, scale: ServiceScale) -> list[str]:
-    """Policial na escala operacional e em DEJEM elegível ao mapa → erro."""
-    scale_users: dict[int, str] = {}
+    """Conflito só quando há sobreposição real de horários DEJEM × equipe operacional."""
+    user_labels: dict[int, str] = {}
+    user_teams: dict[int, list[Any]] = defaultdict(list)
     for team in scale.teams:
         for m in team.members:
             u = m.user
-            scale_users[m.user_id] = (
+            user_labels[m.user_id] = (
                 f"{u.patente} {u.nome_guerra}" if u else f"user#{m.user_id}"
             )
+            user_teams[m.user_id].append(team)
+
+    if not user_teams:
+        return []
 
     candidates = dejem_map.list_shifts_for_date(
         db, scale.scale_date, statuses=_INTEGRABLE
     )
     errors: list[str] = []
     for shift in candidates:
+        dejem_start, dejem_end = combine_shift_window(
+            shift.date,
+            shift.start_time,
+            shift.end_time,
+            tz=_BR,
+        )
+        dejem_range = f"{format_hhmm(dejem_start)}–{format_hhmm(dejem_end)}"
+        title = dejem_map.map_block_title(shift.shift_type)
+
         for p in shift.participants or []:
             from models.dejem import ParticipantStatus
 
             if p.status == ParticipantStatus.CANCELLED:
                 continue
-            if p.user_id in scale_users:
-                title = dejem_map.map_block_title(shift.shift_type)
+            teams = user_teams.get(p.user_id)
+            if not teams:
+                continue
+
+            label = user_labels[p.user_id]
+            for team in teams:
+                t0 = ensure_aware(team.start_datetime, tz=_BR)
+                t1 = ensure_aware(team.end_datetime, tz=_BR)
+                if not intervals_overlap(dejem_start, dejem_end, t0, t1):
+                    continue
+                overlap = overlap_interval(dejem_start, dejem_end, t0, t1)
+                assert overlap is not None
+                ov0, ov1 = overlap
+                mission = team.mission_name or f"equipe#{team.id}"
                 errors.append(
-                    f"Conflito DEJEM: {scale_users[p.user_id]} está na escala "
-                    f"operacional e em «{title}» "
-                    f"({shift.start_time.strftime('%H:%M')}–"
-                    f"{shift.end_time.strftime('%H:%M')})."
+                    f"Conflito DEJEM: {label} — DEJEM «{title}» {dejem_range} "
+                    f"sobrepõe Escala Operacional «{mission}» "
+                    f"{format_hhmm(t0)}–{format_hhmm(t1)} "
+                    f"(sobreposição {format_hhmm(ov0)}–{format_hhmm(ov1)})."
                 )
     return errors
 

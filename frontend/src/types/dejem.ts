@@ -1,4 +1,5 @@
 export type DejemMonthStatus =
+  | "CREATED"
   | "OPEN_INTEREST"
   | "DISTRIBUTED_PENDING"
   | "DISTRIBUTED"
@@ -39,6 +40,7 @@ export function dejemMonthLabel(year: number, month: number): string {
 }
 
 export const DEJEM_MONTH_STATUS_LABELS: Record<DejemMonthStatus, string> = {
+  CREATED: "Criada",
   OPEN_INTEREST: "Manifestação aberta",
   DISTRIBUTED_PENDING: "Aguardando distribuição",
   DISTRIBUTED: "Distribuído",
@@ -109,6 +111,7 @@ export interface DejemInterestPublic {
   interested: boolean;
   desired_slots: number;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface DejemInterestAdminRow {
@@ -238,10 +241,14 @@ export interface DejemShiftDashboard {
   open_shifts: number;
   closed_shifts: number;
   finished_shifts: number;
+  integrated_shifts?: number;
   total_capacity: number;
   total_filled: number;
   total_available: number;
   avg_remaining_slots?: number;
+  campaign_total_slots?: number;
+  opened_slots?: number;
+  remaining_opening_slots?: number;
 }
 
 export interface DejemMyShiftCard {
@@ -390,4 +397,93 @@ export function dejemTimeInputValue(value: string): string {
 
 export function formatDejemTime(value: string): string {
   return value.slice(0, 5);
+}
+
+/* --- Operations DEJEM (offers / incremental) --- */
+
+export type DejemOfferEventType = "INCREASE" | "DECREASE" | "ADJUSTMENT";
+
+export const DEJEM_OFFER_EVENT_TYPE_LABELS: Record<DejemOfferEventType, string> = {
+  INCREASE: "Aumento",
+  DECREASE: "Redução",
+  ADJUSTMENT: "Ajuste",
+};
+
+export interface DejemOfferEvent {
+  id: number;
+  campaign_id: number;
+  event_type: DejemOfferEventType;
+  quantity: number;
+  reason: string | null;
+  created_by: number;
+  created_at: string;
+}
+
+export interface DejemOfferEventCreatePayload {
+  campaign_id: number;
+  event_type: DejemOfferEventType;
+  quantity: number;
+  reason?: string | null;
+}
+
+export interface DejemOfferAvailable {
+  campaign_id: number;
+  available_slots: number;
+  events_count: number;
+}
+
+export interface DejemIncrementalPreview {
+  campaign_id: number;
+  available_slots: number;
+  distributed_slots: number;
+  undistributed_slots: number;
+  unaccounted_slots: number;
+  offer_excess_slots: number;
+  interested_without_allocation: number;
+  would_distribute: number;
+  would_remain: number;
+  has_inconsistency: boolean;
+}
+
+export interface DejemIncrementalRequest {
+  campaign_id: number;
+  reason?: string | null;
+}
+
+export interface DejemIncrementalResult {
+  campaign_id: number;
+  reason: string | null;
+  available_slots: number;
+  slots_processed: number;
+  credits_created: number;
+  allocations_updated: number;
+  allocations_created: number;
+  undistributed_slots: number;
+  offer_excess_slots: number;
+  credits_released?: number;
+  noop?: boolean;
+  message?: string | null;
+}
+
+export interface DejemAllocationSummary {
+  campaign_id: number;
+  available_slots: number;
+  interested_count: number;
+  allocations_count: number;
+  credits_count: number;
+  distributed_slots: number;
+  remaining_slots: number;
+  slots_per_officer: number | null;
+  is_distributed: boolean;
+}
+
+/** Novas vagas / sobras / interessados sem alocação → redistribuição pendente. */
+export function isDejemRedistributionPending(preview: DejemIncrementalPreview | null): boolean {
+  if (!preview) return false;
+  return (
+    preview.unaccounted_slots > 0 ||
+    preview.undistributed_slots > 0 ||
+    preview.would_distribute > 0 ||
+    preview.interested_without_allocation > 0
+  );
 }

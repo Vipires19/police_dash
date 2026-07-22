@@ -21,6 +21,7 @@ from database.base import Base
 
 
 class DejemMonthStatus(str, enum.Enum):
+    CREATED = "CREATED"
     OPEN_INTEREST = "OPEN_INTEREST"
     DISTRIBUTED_PENDING = "DISTRIBUTED_PENDING"
     DISTRIBUTED = "DISTRIBUTED"
@@ -73,6 +74,8 @@ class DejemMonth(Base):
     month: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
     total_available_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     monthly_limit_per_officer: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    undistributed_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    offer_excess_slots: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[DejemMonthStatus] = mapped_column(
         Enum(DejemMonthStatus, name="dejemmonthstatus", create_type=False),
         nullable=False,
@@ -128,6 +131,12 @@ class DejemInterest(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
         nullable=False,
     )
 

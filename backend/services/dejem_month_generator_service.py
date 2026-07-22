@@ -34,6 +34,11 @@ from schemas.dejem import (
     DejemMonthGenerateResult,
 )
 from services.dejem_service import DejemError
+from operations.dejem.services.opening_capacity import (
+    OpeningCapacityError,
+    campaign_total_slots,
+    opened_capacity,
+)
 
 PlanAction = Literal["CREATE", "IGNORE", "REPLACE"]
 
@@ -242,6 +247,34 @@ def generate_month_shifts(
     shift_repo = DejemShiftRepository(db)
 
     from models.dejem import DejemShiftType
+
+    # Simula o saldo após CREATE/REPLACE antes de persistir.
+    projected = opened_capacity(db, month.id)
+    try:
+        total = campaign_total_slots(db, month.id)
+    except OpeningCapacityError as e:
+        raise DejemError(str(e)) from e
+
+    for item in plan:
+        if item.action == "IGNORE":
+            continue
+        if item.action == "REPLACE" and item.existing_shift_id is not None:
+            existing = shift_repo.get_by_id(item.existing_shift_id)
+            if existing is not None and shift_repo.count_filled(existing.id) == 0:
+                projected -= existing.capacity
+                projected += item.capacity
+            elif existing is None:
+                projected += item.capacity
+            # Com participantes: IGNORE no loop abaixo — não altera projected
+        elif item.action == "CREATE":
+            projected += item.capacity
+
+    if projected > total:
+        remaining = max(0, total - opened_capacity(db, month.id))
+        raise DejemError(
+            "Não é possível criar esta escala. A campanha possui apenas "
+            f"{remaining} vagas disponíveis para abertura."
+        )
 
     created = 0
     ignored = 0

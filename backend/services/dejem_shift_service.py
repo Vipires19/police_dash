@@ -38,6 +38,31 @@ from schemas.dejem import (
 from services.dejem_service import DejemError
 
 
+def _assert_opening_capacity(
+    db: Session,
+    month_id: int,
+    requested: int,
+    *,
+    exclude_shift_id: int | None = None,
+    action: str = "criar",
+) -> None:
+    from operations.dejem.services.opening_capacity import (
+        OpeningCapacityError,
+        assert_can_open_capacity,
+    )
+
+    try:
+        assert_can_open_capacity(
+            db,
+            month_id,
+            requested,
+            exclude_shift_id=exclude_shift_id,
+            action=action,
+        )
+    except OpeningCapacityError as e:
+        raise DejemError(str(e)) from e
+
+
 def _shift_to_public(row: DejemShift, filled: int) -> DejemShiftPublic:
     vehicle = row.vehicle
     return DejemShiftPublic(
@@ -154,6 +179,7 @@ def create_shift(db: Session, current: User, body: DejemShiftCreate) -> DejemShi
     if body.date.year != month.year or body.date.month != month.month:
         raise DejemError("A data da escala deve pertencer ao mês DEJEM selecionado.")
     _validate_capacity(body.capacity)
+    _assert_opening_capacity(db, month.id, body.capacity, action="criar")
 
     shift_type = DejemShiftType(body.shift_type.value)
     shift_repo = DejemShiftRepository(db)
@@ -241,6 +267,16 @@ def update_shift(
     if new_capacity < filled:
         raise DejemError(
             f"A capacidade não pode ser menor que as vagas já preenchidas ({filled})."
+        )
+
+    # Aumento líquido: valida só o novo total contra o saldo excluindo esta escala.
+    if new_capacity > row.capacity:
+        _assert_opening_capacity(
+            db,
+            month.id,
+            new_capacity,
+            exclude_shift_id=row.id,
+            action="editar",
         )
 
     _assert_unique_timeslot(
@@ -373,6 +409,11 @@ def get_shift_dashboard(db: Session, month_id: int) -> DejemShiftDashboard:
     total_filled = sum(shift_repo.count_filled(r.id) for r in rows)
     total_capacity = sum(r.capacity for r in rows)
     avg_remaining = DejemAllocationRepository(db).average_remaining(month_id)
+
+    from operations.dejem.services.opening_capacity import opening_capacity_snapshot
+
+    campaign_total, opened_slots, remaining_opening = opening_capacity_snapshot(db, month.id)
+
     return DejemShiftDashboard(
         month_id=month.id,
         year=month.year,
@@ -394,6 +435,9 @@ def get_shift_dashboard(db: Session, month_id: int) -> DejemShiftDashboard:
         total_filled=total_filled,
         total_available=max(0, total_capacity - total_filled),
         avg_remaining_slots=round(avg_remaining, 2),
+        campaign_total_slots=campaign_total,
+        opened_slots=opened_slots,
+        remaining_opening_slots=remaining_opening,
     )
 
 

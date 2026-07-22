@@ -11,6 +11,13 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from core.time_intervals import (
+    combine_shift_window,
+    ensure_aware,
+    format_hhmm,
+    intervals_overlap,
+    overlap_interval,
+)
 from models.dejem import (
     DejemEnrollmentAction,
     DejemEnrollmentAudit,
@@ -47,11 +54,8 @@ def _consumes_balance(participation_type: ParticipationType) -> bool:
 
 
 def _shift_window(day: date, start: time, end: time) -> tuple[datetime, datetime]:
-    start_dt = datetime.combine(day, start, tzinfo=_BR)
-    end_dt = datetime.combine(day, end, tzinfo=_BR)
-    if end_dt <= start_dt:
-        end_dt += timedelta(days=1)
-    return start_dt, end_dt
+    """Compat: delega ao utilitário compartilhado (overnight incluso)."""
+    return combine_shift_window(day, start, end, tz=_BR)
 
 
 def _assert_shift_open(shift: DejemShift) -> None:
@@ -116,7 +120,7 @@ def _assert_no_dejem_overlap(
             other_shift.start_time,
             other_shift.end_time,
         )
-        if start_dt < o_end and o_start < end_dt:
+        if intervals_overlap(start_dt, end_dt, o_start, o_end):
             raise DejemError("Conflito com outra escala DEJEM no mesmo horário.")
 
 
@@ -140,17 +144,28 @@ def _assert_no_operational_overlap(db: Session, *, user_id: int, shift: DejemShi
         )
     )
     teams = list(db.scalars(stmt).unique().all())
+    user = db.get(User, user_id)
+    label = (
+        f"{user.patente} {user.nome_guerra}".strip()
+        if user
+        else f"user#{user_id}"
+    )
+    dejem_range = f"{format_hhmm(start_dt)}–{format_hhmm(end_dt)}"
+
     for team in teams:
-        t0 = team.start_datetime
-        t1 = team.end_datetime
-        if t0.tzinfo is None:
-            t0 = t0.replace(tzinfo=_BR)
-        if t1.tzinfo is None:
-            t1 = t1.replace(tzinfo=_BR)
-        if start_dt < t1 and t0 < end_dt:
-            raise DejemError(
-                "Conflito com Escala Operacional já publicada no mesmo horário."
-            )
+        t0 = ensure_aware(team.start_datetime, tz=_BR)
+        t1 = ensure_aware(team.end_datetime, tz=_BR)
+        overlap = overlap_interval(start_dt, end_dt, t0, t1)
+        if overlap is None:
+            continue
+        ov0, ov1 = overlap
+        mission = team.mission_name or f"equipe#{team.id}"
+        raise DejemError(
+            f"Conflito DEJEM × Escala Operacional: {label} — "
+            f"DEJEM {dejem_range} sobrepõe «{mission}» "
+            f"{format_hhmm(t0)}–{format_hhmm(t1)} "
+            f"(sobreposição {format_hhmm(ov0)}–{format_hhmm(ov1)})."
+        )
 
 
 def _participant_to_result(row: DejemParticipant, allocation_remaining: int | None) -> DejemEnrollmentResult:

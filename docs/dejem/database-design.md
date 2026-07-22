@@ -1,84 +1,21 @@
-## Campaign
+# DEJEM — Database design
+
+## R1 — `038_dejem_hardening_indexes`
 
 ```sql
-id
+UNIQUE INDEX uq_dejem_published_one_active_per_campaign
+  ON dejem_published_schedules (campaign_id)
+  WHERE status = 'ACTIVE'
+```
 
-month
+## C10 — `037_dejem_publication`
 
-year
+`dejem_published_schedules` + audits.
 
-status
+## C9 — `036_dejem_operational_planning`
 
-created_at
+Teams / assignments.
 
-closed_at
-OfferEvent
-id
+## C8 — `035_dejem_date_selection`
 
-campaign_id
-
-type
-
-quantity
-
-reason
-
-created_by
-
-created_at
-Interest
-id
-
-campaign_id
-
-police_id
-
-desired_slots
-
-status
-
-created_at
-
-updated_at
-Allocation
-id
-
-campaign_id
-
-police_id
-
-allocated_slots
-
-algorithm_version
-
-created_at
-Credit
-id
-
-campaign_id
-
-allocation_id
-
-status
-
-schedule_id
-
-created_at
-
-updated_at
-AllocationHistory
-id
-
-campaign_id
-
-credit_id
-
-event
-
-description
-
-user
-
-created_at
-
-Essa tabela registra todas as movimentações.
+ShiftSlots + `credit.shift_slot_id`.

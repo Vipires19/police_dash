@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
+import { DejemVacancyManagement } from "@/components/dejem/DejemVacancyManagement";
 import { OperationalLayout } from "@/layouts/OperationalLayout";
 import { useAuth } from "@/hooks/AuthContext";
 import { ApiError } from "@/services/api";
@@ -14,8 +15,11 @@ import {
   DEJEM_MONTH_NAMES,
   DEJEM_MONTH_STATUS_LABELS,
   dejemMonthLabel,
+  isDejemRedistributionPending,
   type DejemAllocationAdminRow,
+  type DejemAllocationSummary,
   type DejemDistributionPreview,
+  type DejemIncrementalPreview,
   type DejemInterestAdminRow,
   type DejemMonthPublic,
 } from "@/types/dejem";
@@ -47,6 +51,10 @@ export function DejemAdminPage() {
   const [preview, setPreview] = useState<DejemDistributionPreview | null>(null);
   const [previewMonth, setPreviewMonth] = useState<DejemMonthPublic | null>(null);
 
+  const [opsPreview, setOpsPreview] = useState<DejemIncrementalPreview | null>(null);
+  const [opsSummary, setOpsSummary] = useState<DejemAllocationSummary | null>(null);
+  const [shiftsCreated, setShiftsCreated] = useState(0);
+
   const now = new Date();
   const [formYear, setFormYear] = useState(now.getFullYear());
   const [formMonth, setFormMonth] = useState(now.getMonth() + 1);
@@ -57,6 +65,19 @@ export function DejemAdminPage() {
     () => months.find((m) => m.id === selectedId) ?? null,
     [months, selectedId],
   );
+
+  const canManageOps =
+    selected != null &&
+    (selected.status === "DISTRIBUTED" ||
+      selected.status === "OPEN_SHIFTS" ||
+      selected.status === "FINISHED" ||
+      selected.status === "DISTRIBUTED_PENDING");
+
+  const canRedistribute =
+    selected != null &&
+    (selected.status === "DISTRIBUTED" ||
+      selected.status === "OPEN_SHIFTS" ||
+      selected.status === "FINISHED");
 
   const loadMonths = useCallback(async () => {
     if (!token) return;
@@ -106,6 +127,71 @@ export function DejemAdminPage() {
     [token],
   );
 
+  const loadCampaignOps = useCallback(
+    async (monthId: number, status: DejemMonthPublic["status"]) => {
+      if (!token) return;
+      const opsReady =
+        status === "DISTRIBUTED" ||
+        status === "OPEN_SHIFTS" ||
+        status === "FINISHED" ||
+        status === "DISTRIBUTED_PENDING";
+      if (!opsReady) {
+        setOpsPreview(null);
+        setOpsSummary(null);
+        setShiftsCreated(0);
+        return;
+      }
+      try {
+        const canPreview =
+          status === "DISTRIBUTED" || status === "OPEN_SHIFTS" || status === "FINISHED";
+        const [inc, summary, dash, offer] = await Promise.all([
+          canPreview
+            ? dejemApi.getDejemIncrementalPreview(token, monthId).catch(() => null)
+            : Promise.resolve(null),
+          dejemApi.getDejemAllocationSummary(token, monthId).catch(() => null),
+          dejemApi.getDejemShiftDashboard(token, monthId).catch(() => null),
+          dejemApi.getDejemOfferAvailable(token, monthId).catch(() => null),
+        ]);
+        if (inc) {
+          setOpsPreview(inc);
+        } else if (offer) {
+          setOpsPreview({
+            campaign_id: monthId,
+            available_slots: offer.available_slots,
+            distributed_slots: summary?.distributed_slots ?? 0,
+            undistributed_slots: summary?.remaining_slots ?? 0,
+            unaccounted_slots: 0,
+            offer_excess_slots: 0,
+            interested_without_allocation: 0,
+            would_distribute: 0,
+            would_remain: 0,
+            has_inconsistency: false,
+          });
+        } else {
+          setOpsPreview(null);
+        }
+        setOpsSummary(summary);
+        setShiftsCreated(dash?.total_shifts ?? 0);
+      } catch (e) {
+        setError(e instanceof ApiError ? e.detail : "Erro ao carregar indicadores da campanha");
+      }
+    },
+    [token],
+  );
+
+  const refreshSelectedCampaign = useCallback(async () => {
+    if (!token || selectedId == null) return;
+    const list = await dejemApi.listDejemMonths(token);
+    setMonths(list);
+    const current = list.find((m) => m.id === selectedId);
+    if (!current) return;
+    await Promise.all([
+      loadInterests(selectedId),
+      loadAllocations(selectedId, current.status),
+      loadCampaignOps(selectedId, current.status),
+    ]);
+  }, [token, selectedId, loadInterests, loadAllocations, loadCampaignOps]);
+
   useEffect(() => {
     void loadMonths();
   }, [loadMonths]);
@@ -114,11 +200,15 @@ export function DejemAdminPage() {
     if (selectedId == null || !selected) {
       setInterests([]);
       setAllocations([]);
+      setOpsPreview(null);
+      setOpsSummary(null);
+      setShiftsCreated(0);
       return;
     }
     void loadInterests(selectedId);
     void loadAllocations(selectedId, selected.status);
-  }, [selectedId, selected, loadInterests, loadAllocations]);
+    void loadCampaignOps(selectedId, selected.status);
+  }, [selectedId, selected?.status, loadInterests, loadAllocations, loadCampaignOps]);
 
   if (!isDejemAdmin) {
     return <Navigate to="/dejem/my" replace />;
@@ -199,6 +289,7 @@ export function DejemAdminPage() {
       setPreviewOpen(false);
       setPreview(null);
       setPreviewMonth(null);
+      await loadCampaignOps(res.month.id, res.month.status);
       setMsg(
         `Distribuição concluída. ${res.allocations.length} saldos criados` +
           (res.leftover_slots > 0 ? ` (${res.leftover_slots} vagas sem destinatário).` : "."),
@@ -241,6 +332,25 @@ export function DejemAdminPage() {
     (selected.status === "DISTRIBUTED" ||
       selected.status === "OPEN_SHIFTS" ||
       selected.status === "FINISHED");
+
+  const totalSlots =
+    opsPreview?.available_slots ??
+    opsSummary?.available_slots ??
+    selected?.total_available_slots ??
+    0;
+  const distributedSlots =
+    opsPreview?.distributed_slots ??
+    opsSummary?.distributed_slots ??
+    allocations.reduce((acc, a) => acc + a.allocated_slots, 0);
+  const availableBalance = Math.max(0, totalSlots - distributedSlots);
+  const saldoTotalDisponivel = allocations.reduce((acc, a) => acc + a.remaining_slots, 0);
+  const saldoTotalDistribuido = allocations.reduce((acc, a) => acc + a.allocated_slots, 0);
+  const saldoUtilizadoTotal = allocations.reduce((acc, a) => acc + a.used_slots, 0);
+  const mediaPorPolicial =
+    allocations.length > 0
+      ? Math.round((saldoTotalDistribuido / allocations.length) * 10) / 10
+      : 0;
+  const redistributionPending = isDejemRedistributionPending(opsPreview);
 
   return (
     <OperationalLayout>
@@ -419,6 +529,68 @@ export function DejemAdminPage() {
             </table>
           </div>
 
+          {selected && canManageOps && (
+            <>
+              <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+                {[
+                  {
+                    label: "Interessados",
+                    value: opsSummary?.interested_count ?? selected.interested_count,
+                  },
+                  { label: "Total de vagas", value: totalSlots },
+                  { label: "Distribuídas", value: distributedSlots },
+                  { label: "Disponíveis", value: availableBalance },
+                  { label: "Escalas criadas", value: shiftsCreated },
+                  { label: "Saldo total disponível", value: saldoTotalDisponivel },
+                ].map((card) => (
+                  <div
+                    key={card.label}
+                    className="rounded-xl border border-zinc-800 bg-zinc-950/60 px-4 py-3"
+                  >
+                    <p className="text-xs text-zinc-500">{card.label}</p>
+                    <p className="mt-1 text-xl tabular-nums font-semibold text-zinc-50">
+                      {card.value}
+                    </p>
+                  </div>
+                ))}
+              </section>
+
+              {canRedistribute && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={[
+                      "rounded-md px-2.5 py-1 text-xs font-medium ring-1",
+                      redistributionPending
+                        ? "bg-amber-950/50 text-amber-200 ring-amber-800/60"
+                        : "bg-emerald-950/40 text-emerald-200 ring-emerald-800/50",
+                    ].join(" ")}
+                  >
+                    {redistributionPending
+                      ? "Redistribuição pendente"
+                      : "Distribuição atualizada"}
+                  </span>
+                </div>
+              )}
+
+              {token && (
+                <DejemVacancyManagement
+                  token={token}
+                  campaignId={selected.id}
+                  canRedistribute={canRedistribute}
+                  preview={opsPreview}
+                  totalSlots={totalSlots}
+                  distributedSlots={distributedSlots}
+                  availableBalance={availableBalance}
+                  busy={busy}
+                  onBusy={setBusy}
+                  onError={setError}
+                  onMsg={setMsg}
+                  onRefresh={refreshSelectedCampaign}
+                />
+              )}
+            </>
+          )}
+
           {selected && !showAllocations && (
             <section>
               <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-300">
@@ -482,35 +654,71 @@ export function DejemAdminPage() {
               {allocations.length === 0 ? (
                 <p className="text-sm text-zinc-500">Nenhuma alocação registrada.</p>
               ) : (
-                <div className="overflow-x-auto rounded-xl border border-zinc-800">
-                  <table className="min-w-full text-left text-sm">
-                    <thead className="border-b border-zinc-800 bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
-                      <tr>
-                        <th className="px-4 py-3 font-medium">Policial</th>
-                        <th className="px-4 py-3 font-medium">Pelotão</th>
-                        <th className="px-4 py-3 font-medium">Qtd. desejada</th>
-                        <th className="px-4 py-3 font-medium">Vagas recebidas</th>
-                        <th className="px-4 py-3 font-medium">Saldo disponível</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {allocations.map((row) => (
-                        <tr key={row.id} className="border-b border-zinc-900/80">
-                          <td className="px-4 py-3 text-zinc-100">
-                            {row.patente} {row.nome_guerra}
-                          </td>
-                          <td className="px-4 py-3 text-zinc-300">
-                            {ORGANIZATIONAL_UNIT_LABELS[row.organizational_unit as OrganizationalUnit] ??
-                              row.organizational_unit}
-                          </td>
-                          <td className="px-4 py-3 tabular-nums text-zinc-300">{row.desired_slots}</td>
-                          <td className="px-4 py-3 tabular-nums text-zinc-100">{row.allocated_slots}</td>
-                          <td className="px-4 py-3 tabular-nums text-zinc-100">{row.remaining_slots}</td>
+                <>
+                  <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      { label: "Saldo total distribuído", value: saldoTotalDistribuido },
+                      {
+                        label: "Saldo restante",
+                        value: saldoTotalDisponivel,
+                      },
+                      { label: "Quantidade de policiais", value: allocations.length },
+                      { label: "Média por policial", value: mediaPorPolicial },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className="rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-2"
+                      >
+                        <p className="text-xs text-zinc-500">{item.label}</p>
+                        <p className="mt-0.5 text-base tabular-nums text-zinc-100">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="mb-2 text-xs text-zinc-500">
+                    Saldo utilizado (total):{" "}
+                    <span className="tabular-nums text-zinc-300">{saldoUtilizadoTotal}</span>
+                  </p>
+                  <div className="overflow-x-auto rounded-xl border border-zinc-800">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b border-zinc-800 bg-zinc-900/60 text-xs uppercase tracking-wider text-zinc-500">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Policial</th>
+                          <th className="px-4 py-3 font-medium">Pelotão</th>
+                          <th className="px-4 py-3 font-medium">Qtd. desejada</th>
+                          <th className="px-4 py-3 font-medium">Vagas recebidas</th>
+                          <th className="px-4 py-3 font-medium">Saldo utilizado</th>
+                          <th className="px-4 py-3 font-medium">Saldo disponível</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {allocations.map((row) => (
+                          <tr key={row.id} className="border-b border-zinc-900/80">
+                            <td className="px-4 py-3 text-zinc-100">
+                              {row.patente} {row.nome_guerra}
+                            </td>
+                            <td className="px-4 py-3 text-zinc-300">
+                              {ORGANIZATIONAL_UNIT_LABELS[
+                                row.organizational_unit as OrganizationalUnit
+                              ] ?? row.organizational_unit}
+                            </td>
+                            <td className="px-4 py-3 tabular-nums text-zinc-300">
+                              {row.desired_slots}
+                            </td>
+                            <td className="px-4 py-3 tabular-nums text-zinc-100">
+                              {row.allocated_slots}
+                            </td>
+                            <td className="px-4 py-3 tabular-nums text-zinc-100">
+                              {row.used_slots}
+                            </td>
+                            <td className="px-4 py-3 tabular-nums text-zinc-100">
+                              {row.remaining_slots}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
               )}
             </section>
           )}

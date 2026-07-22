@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class DejemMonthStatusEnum(str, Enum):
+    CREATED = "CREATED"
     OPEN_INTEREST = "OPEN_INTEREST"
     DISTRIBUTED_PENDING = "DISTRIBUTED_PENDING"
     DISTRIBUTED = "DISTRIBUTED"
@@ -84,6 +85,7 @@ class DejemInterestPublic(BaseModel):
     interested: bool
     desired_slots: int
     created_at: datetime
+    updated_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -232,6 +234,10 @@ class DejemShiftDashboard(BaseModel):
     total_filled: int
     total_available: int
     avg_remaining_slots: float = 0.0
+    # Limite de abertura vs campanha (OfferService / projeção)
+    campaign_total_slots: int = 0
+    opened_slots: int = 0
+    remaining_opening_slots: int = 0
 
 
 # --- Enrollment (fase 4.5) ---

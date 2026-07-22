@@ -1,0 +1,131 @@
+"""Schemas Pydantic do domínio DEJEM."""
+
+from operations.dejem.schemas.allocation import (
+    AllocationAuditResponse,
+    AllocationCreate,
+    AllocationResponse,
+    AllocationUpdate,
+)
+from operations.dejem.schemas.campaign import (
+    CampaignAuditResponse,
+    CampaignCreate,
+    CampaignResponse,
+    CampaignStatusChange,
+    CampaignUpdate,
+)
+from operations.dejem.schemas.credit import (
+    CreditActionRequest,
+    CreditAuditResponse,
+    CreditCreate,
+    CreditResponse,
+    CreditUpdate,
+)
+from operations.dejem.schemas.engine import (
+    AllocateRequest,
+    AllocateResponse,
+    AllocationSummaryResponse,
+    RemainingSlotsResponse,
+)
+from operations.dejem.schemas.incremental import (
+    IncrementalAuditResponse,
+    IncrementalPreviewResponse,
+    IncrementalRequest,
+    IncrementalResultResponse,
+)
+from operations.dejem.schemas.interest import (
+    InterestAdminListResponse,
+    InterestAdminRow,
+    InterestCreate,
+    InterestMyResponse,
+    InterestResponse,
+    InterestStatisticsResponse,
+    InterestUpdate,
+)
+from operations.dejem.schemas.offer_event import (
+    OfferAvailableResponse,
+    OfferEventCreate,
+    OfferEventResponse,
+    OfferEventUpdate,
+)
+from operations.dejem.schemas.operational_team import (
+    AssignmentResponse,
+    OperationalTeamAuditResponse,
+    OperationalTeamCreate,
+    OperationalTeamResponse,
+    OperationalTeamUpdate,
+    TeamCommanderUpdate,
+    TeamMemberCreate,
+    TeamVehicleUpdate,
+)
+from operations.dejem.schemas.publication import (
+    PublishRequest,
+    PublishedScheduleResponse,
+    RepublishRequest,
+    SnapshotResponse,
+    UnlockResponse,
+)
+from operations.dejem.schemas.shift_slot import (
+    ChangeSlotRequest,
+    ReservationAuditResponse,
+    ReserveSlotRequest,
+    ShiftSlotAvailabilityResponse,
+    ShiftSlotCreate,
+    ShiftSlotResponse,
+    ShiftSlotUpdate,
+)
+
+__all__ = [
+    "AllocateRequest",
+    "AllocateResponse",
+    "AllocationAuditResponse",
+    "AllocationCreate",
+    "AllocationResponse",
+    "AllocationSummaryResponse",
+    "AllocationUpdate",
+    "AssignmentResponse",
+    "CampaignAuditResponse",
+    "CampaignCreate",
+    "CampaignResponse",
+    "CampaignStatusChange",
+    "CampaignUpdate",
+    "ChangeSlotRequest",
+    "CreditActionRequest",
+    "CreditAuditResponse",
+    "CreditCreate",
+    "CreditResponse",
+    "CreditUpdate",
+    "IncrementalAuditResponse",
+    "IncrementalPreviewResponse",
+    "IncrementalRequest",
+    "IncrementalResultResponse",
+    "InterestAdminListResponse",
+    "InterestAdminRow",
+    "InterestCreate",
+    "InterestMyResponse",
+    "InterestResponse",
+    "InterestStatisticsResponse",
+    "InterestUpdate",
+    "OfferAvailableResponse",
+    "OfferEventCreate",
+    "OfferEventResponse",
+    "OfferEventUpdate",
+    "OperationalTeamAuditResponse",
+    "OperationalTeamCreate",
+    "OperationalTeamResponse",
+    "OperationalTeamUpdate",
+    "PublishRequest",
+    "PublishedScheduleResponse",
+    "RemainingSlotsResponse",
+    "RepublishRequest",
+    "ReservationAuditResponse",
+    "ReserveSlotRequest",
+    "ShiftSlotAvailabilityResponse",
+    "ShiftSlotCreate",
+    "ShiftSlotResponse",
+    "ShiftSlotUpdate",
+    "SnapshotResponse",
+    "TeamCommanderUpdate",
+    "TeamMemberCreate",
+    "TeamVehicleUpdate",
+    "UnlockResponse",
+]
