@@ -40,6 +40,18 @@ class ParticipantStatusEnum(str, Enum):
     CANCELLED = "CANCELLED"
 
 
+class AssignmentRoleEnum(str, Enum):
+    """Espelha operations.dejem.models.enums.AssignmentRole."""
+
+    MEMBER = "MEMBER"
+    COMMANDER = "COMMANDER"
+    DRIVER = "DRIVER"
+    THIRD_MAN = "THIRD_MAN"
+    FOURTH_MAN = "FOURTH_MAN"
+    MOTO_2 = "MOTO_2"
+    MOTO_3 = "MOTO_3"
+
+
 # --- DejemMonth ---
 
 
@@ -166,6 +178,7 @@ class DejemShiftCreate(BaseModel):
     capacity: int = Field(ge=0)
     status: DejemShiftStatusEnum = DejemShiftStatusEnum.OPEN
     vehicle_id: int | None = None
+    mission_name: str | None = Field(default=None, max_length=256)
 
 
 class DejemShiftUpdate(BaseModel):
@@ -176,6 +189,7 @@ class DejemShiftUpdate(BaseModel):
     capacity: int | None = Field(default=None, ge=0)
     status: DejemShiftStatusEnum | None = None
     vehicle_id: int | None = None
+    mission_name: str | None = Field(default=None, max_length=256)
 
 
 class DejemShiftPublic(BaseModel):
@@ -191,6 +205,7 @@ class DejemShiftPublic(BaseModel):
     status: DejemShiftStatusEnum
     vehicle_id: int | None = None
     vehicle_prefixo: str | None = None
+    mission_name: str | None = None
     created_by_id: int
     created_at: datetime
     updated_at: datetime
@@ -254,6 +269,7 @@ class DejemParticipantAdminRow(BaseModel):
     user_id: int
     participation_type: ParticipationTypeEnum
     status: ParticipantStatusEnum
+    role: AssignmentRoleEnum = AssignmentRoleEnum.MEMBER
     consumes_balance: bool
     created_at: datetime
     enrolled_by_id: int | None = None
@@ -261,6 +277,15 @@ class DejemParticipantAdminRow(BaseModel):
     nome_guerra: str
     full_name: str | None = None
     remaining_slots: int = 0
+
+
+class DejemRoleAssignment(BaseModel):
+    user_id: int
+    role: AssignmentRoleEnum
+
+
+class DejemShiftRolesUpdate(BaseModel):
+    assignments: list[DejemRoleAssignment] = Field(default_factory=list)
 
 
 class DejemEnrollmentResult(BaseModel):

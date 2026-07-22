@@ -12,6 +12,7 @@ import * as vehiclesApi from "@/services/vehiclesApi";
 import { isDejemShiftEditorRole, isDejemShiftViewerRole, type User } from "@/types";
 import type { Vehicle } from "@/types/vehicle";
 import type {
+  DejemAssignmentRole,
   DejemMonthGeneratePayload,
   DejemMonthGeneratePreview,
   DejemMonthGenerateResult,
@@ -261,6 +262,26 @@ export function DejemShiftsPage() {
     }
   };
 
+  const onSetRoles = async (
+    shiftId: number,
+    assignments: { user_id: number; role: DejemAssignmentRole }[],
+  ) => {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setMsg(null);
+    try {
+      const rows = await dejemApi.setDejemShiftRoles(token, shiftId, { assignments });
+      setParticipantsByShift((prev) => ({ ...prev, [shiftId]: rows }));
+      setMsg("Funções da equipe atualizadas.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail : "Erro ao salvar funções");
+      throw e;
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const onPreview = async (
     payload: DejemMonthGeneratePayload,
   ): Promise<DejemMonthGeneratePreview> => {
@@ -438,6 +459,7 @@ export function DejemShiftsPage() {
             onAddParticipant={onAddParticipant}
             onRemoveParticipant={onRemoveParticipant}
             onCloseShift={onCloseShift}
+            onSetRoles={onSetRoles}
             remainingOpeningSlots={dashboard?.remaining_opening_slots ?? null}
           />
         </>

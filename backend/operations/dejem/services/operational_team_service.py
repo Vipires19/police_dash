@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 from models.user import User
 from models.vehicle import Vehicle, VehicleStatus
 from operations.dejem.models.credit import Credit
+from operations.dejem.models.assignment_roles import (
+    assert_role_allowed_for_team,
+    assert_roles_unique,
+)
 from operations.dejem.models.enums import AssignmentRole, CreditStatus, TeamStatus
 from operations.dejem.models.operational_team import (
     OperationalAssignment,
@@ -31,6 +35,8 @@ from operations.dejem.schemas.operational_team import (
     OperationalTeamUpdate,
     TeamCommanderUpdate,
     TeamMemberCreate,
+    TeamMemberRoleUpdate,
+    TeamRolesUpdate,
     TeamVehicleUpdate,
 )
 from operations.dejem.services.publication_lock import raise_if_campaign_locked
@@ -99,6 +105,7 @@ class OperationalTeamService:
             commander_id=body.commander_id,
             status=body.status,
             max_members=body.max_members,
+            mission_name=(body.mission_name.strip() if body.mission_name else None),
             notes=body.notes,
         )
         self.repo.add(team)
@@ -131,6 +138,8 @@ class OperationalTeamService:
             team.max_members = body.max_members
         if body.team_type is not None:
             team.team_type = body.team_type
+        if body.mission_name is not None:
+            team.mission_name = body.mission_name.strip() or None
         if body.notes is not None:
             team.notes = body.notes
         if body.status is not None:
@@ -173,35 +182,141 @@ class OperationalTeamService:
                 f"Capacidade da equipe atingida (max={team.max_members})."
             )
 
-        credit = self._require_credit_for_team(body.credit_id, team)
-        existing = self.repo.get_assignment_by_credit(credit.id)
-        if existing:
-            raise OperationalTeamError(
-                f"Credit {credit.id} já está alocado na equipe {existing.operational_team_id}."
-            )
-        if any(a.user_id == credit.police_officer_id for a in team.assignments):
+        credit: Credit | None = None
+        user_id: int
+        if body.credit_id is not None:
+            credit = self._require_credit_for_team(body.credit_id, team)
+            user_id = credit.police_officer_id
+            existing = self.repo.get_assignment_by_credit(credit.id)
+            if existing:
+                raise OperationalTeamError(
+                    f"Credit {credit.id} já está alocado na equipe {existing.operational_team_id}."
+                )
+        else:
+            # God Mode: inclusão manual sem crédito.
+            assert body.user_id is not None
+            self._require_user(body.user_id)
+            user_id = body.user_id
+
+        if any(a.user_id == user_id for a in team.assignments):
             raise OperationalTeamError("Policial já é membro desta equipe.")
 
         role = body.role
+        try:
+            assert_role_allowed_for_team(team.team_type, role, error_cls=OperationalTeamError)
+            assert_roles_unique(
+                [role, *[a.role for a in team.assignments]],
+                error_cls=OperationalTeamError,
+            )
+        except OperationalTeamError:
+            raise
+
         assignment = OperationalAssignment(
             operational_team_id=team.id,
-            credit_id=credit.id,
-            user_id=credit.police_officer_id,
+            credit_id=credit.id if credit else None,
+            user_id=user_id,
             role=role,
         )
         self.repo.add_assignment(assignment)
 
         if role == AssignmentRole.COMMANDER:
-            team.commander_id = credit.police_officer_id
+            team.commander_id = user_id
             self.repo.save(team)
 
         self._audit(
             team=team,
             actor=actor,
             action="ADD_MEMBER",
-            user_id=credit.police_officer_id,
-            credit_id=credit.id,
+            user_id=user_id,
+            credit_id=credit.id if credit else None,
+            details=f"role={role.value}" + ("" if credit else " god_mode=1"),
+        )
+        self.db.commit()
+        return self._to_response(self._get_or_raise(team_id))
+
+    def set_member_role(
+        self,
+        team_id: int,
+        member_id: int,
+        actor: User,
+        body: TeamMemberRoleUpdate,
+    ) -> OperationalTeamResponse:
+        team = self._get_or_raise(team_id)
+        raise_if_campaign_locked(self.db, team.campaign_id, OperationalTeamError)
+        assignment = self.repo.get_assignment(member_id)
+        if not assignment or assignment.operational_team_id != team.id:
+            raise OperationalTeamError("Membro não encontrado nesta equipe.")
+
+        role = body.role
+        assert_role_allowed_for_team(team.team_type, role, error_cls=OperationalTeamError)
+        others = [a.role for a in team.assignments if a.id != assignment.id]
+        assert_roles_unique([role, *others], error_cls=OperationalTeamError)
+
+        assignment.role = role
+        if role == AssignmentRole.COMMANDER:
+            team.commander_id = assignment.user_id
+            for a in team.assignments:
+                if a.id != assignment.id and a.role == AssignmentRole.COMMANDER:
+                    a.role = AssignmentRole.MEMBER
+            self.repo.save(team)
+        elif team.commander_id == assignment.user_id:
+            team.commander_id = None
+            self.repo.save(team)
+
+        self._audit(
+            team=team,
+            actor=actor,
+            action="SET_MEMBER_ROLE",
+            user_id=assignment.user_id,
+            credit_id=assignment.credit_id,
             details=f"role={role.value}",
+        )
+        self.db.commit()
+        return self._to_response(self._get_or_raise(team_id))
+
+    def set_roles(
+        self,
+        team_id: int,
+        actor: User,
+        body: TeamRolesUpdate,
+    ) -> OperationalTeamResponse:
+        """Atribui funções exclusivas aos integrantes (padrão Escala Operacional)."""
+        team = self._get_or_raise(team_id)
+        raise_if_campaign_locked(self.db, team.campaign_id, OperationalTeamError)
+        by_user = {a.user_id: a for a in team.assignments}
+
+        roles: list[AssignmentRole] = []
+        for item in body.assignments:
+            if item.user_id not in by_user:
+                raise OperationalTeamError(
+                    f"Policial {item.user_id} não pertence a esta equipe."
+                )
+            assert_role_allowed_for_team(
+                team.team_type, item.role, error_cls=OperationalTeamError
+            )
+            roles.append(item.role)
+        assert_roles_unique(roles, error_cls=OperationalTeamError)
+
+        assigned_users = {item.user_id for item in body.assignments}
+        for a in team.assignments:
+            if a.user_id not in assigned_users:
+                a.role = AssignmentRole.MEMBER
+
+        commander_id: int | None = None
+        for item in body.assignments:
+            a = by_user[item.user_id]
+            a.role = item.role
+            if item.role == AssignmentRole.COMMANDER:
+                commander_id = item.user_id
+
+        team.commander_id = commander_id
+        self.repo.save(team)
+        self._audit(
+            team=team,
+            actor=actor,
+            action="SET_ROLES",
+            commander_id=commander_id,
+            details=f"n={len(body.assignments)}",
         )
         self.db.commit()
         return self._to_response(self._get_or_raise(team_id))
@@ -271,19 +386,37 @@ class OperationalTeamService:
         raise_if_campaign_locked(self.db, team.campaign_id, OperationalTeamError)
         if body.commander_id is not None:
             self._require_user(body.commander_id)
-            # Preferencialmente membro; se não for, ainda permite (planejamento)
             member = next(
                 (a for a in team.assignments if a.user_id == body.commander_id),
                 None,
             )
-            if member and member.role != AssignmentRole.COMMANDER:
+            if member is None:
+                raise OperationalTeamError(
+                    "Comandante deve ser integrante da própria equipe."
+                )
+            assert_roles_unique(
+                [
+                    AssignmentRole.COMMANDER,
+                    *[
+                        a.role
+                        for a in team.assignments
+                        if a.user_id != body.commander_id
+                        and a.role != AssignmentRole.COMMANDER
+                    ],
+                ],
+                error_cls=OperationalTeamError,
+            )
+            if member.role != AssignmentRole.COMMANDER:
                 member.role = AssignmentRole.COMMANDER
-            # Demote previous commander assignment roles
             for a in team.assignments:
                 if (
                     a.user_id != body.commander_id
                     and a.role == AssignmentRole.COMMANDER
                 ):
+                    a.role = AssignmentRole.MEMBER
+        else:
+            for a in team.assignments:
+                if a.role == AssignmentRole.COMMANDER:
                     a.role = AssignmentRole.MEMBER
 
         team.commander_id = body.commander_id
@@ -408,6 +541,7 @@ class OperationalTeamService:
             commander_id=team.commander_id,
             status=team.status,
             max_members=team.max_members,
+            mission_name=team.mission_name,
             notes=team.notes,
             member_count=len(members),
             members=members,

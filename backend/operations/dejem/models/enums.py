@@ -69,10 +69,15 @@ class TeamStatus(str, enum.Enum):
 
 
 class AssignmentRole(str, enum.Enum):
-    """Papel do policial na equipe."""
+    """Papel do policial na equipe (paridade Escala Operacional)."""
 
     MEMBER = "MEMBER"
     COMMANDER = "COMMANDER"
+    DRIVER = "DRIVER"
+    THIRD_MAN = "THIRD_MAN"
+    FOURTH_MAN = "FOURTH_MAN"
+    MOTO_2 = "MOTO_2"
+    MOTO_3 = "MOTO_3"
 
 
 class PublishedScheduleStatus(str, enum.Enum):

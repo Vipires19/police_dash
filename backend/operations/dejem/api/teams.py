@@ -20,6 +20,8 @@ from operations.dejem.schemas.operational_team import (
     OperationalTeamUpdate,
     TeamCommanderUpdate,
     TeamMemberCreate,
+    TeamMemberRoleUpdate,
+    TeamRolesUpdate,
     TeamVehicleUpdate,
 )
 from operations.dejem.services.operational_team_service import (
@@ -134,6 +136,36 @@ def remove_member(
 ) -> OperationalTeamResponse:
     try:
         return OperationalTeamService(db).remove_member(team_id, member_id, current)
+    except OperationalTeamError as e:
+        raise domain_http_error(e) from e
+
+@router.put(
+    "/{team_id}/members/{member_id}/role",
+    response_model=OperationalTeamResponse,
+)
+def set_member_role(
+    team_id: int,
+    member_id: int,
+    body: TeamMemberRoleUpdate,
+    current: User = Depends(require_dejem_admin),
+    db: Session = Depends(get_db),
+) -> OperationalTeamResponse:
+    try:
+        return OperationalTeamService(db).set_member_role(
+            team_id, member_id, current, body
+        )
+    except OperationalTeamError as e:
+        raise domain_http_error(e) from e
+
+@router.put("/{team_id}/roles", response_model=OperationalTeamResponse)
+def set_team_roles(
+    team_id: int,
+    body: TeamRolesUpdate,
+    current: User = Depends(require_dejem_admin),
+    db: Session = Depends(get_db),
+) -> OperationalTeamResponse:
+    try:
+        return OperationalTeamService(db).set_roles(team_id, current, body)
     except OperationalTeamError as e:
         raise domain_http_error(e) from e
 

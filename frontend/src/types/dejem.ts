@@ -184,6 +184,7 @@ export interface DejemShiftPublic {
   status: DejemShiftStatus;
   vehicle_id: number | null;
   vehicle_prefixo: string | null;
+  mission_name?: string | null;
   created_by_id: number;
   created_at: string;
   updated_at: string;
@@ -198,6 +199,7 @@ export interface DejemShiftCreatePayload {
   capacity: number;
   status?: DejemShiftStatus;
   vehicle_id?: number | null;
+  mission_name?: string | null;
 }
 
 export interface DejemShiftUpdatePayload {
@@ -208,6 +210,7 @@ export interface DejemShiftUpdatePayload {
   capacity?: number;
   status?: DejemShiftStatus;
   vehicle_id?: number | null;
+  mission_name?: string | null;
 }
 
 export interface DejemShiftCalendarDay {
@@ -278,6 +281,7 @@ export interface DejemParticipantAdminRow {
   user_id: number;
   participation_type: ParticipationType;
   status: ParticipantStatus;
+  role?: DejemAssignmentRole;
   consumes_balance: boolean;
   created_at: string;
   enrolled_by_id: number | null;
@@ -285,6 +289,19 @@ export interface DejemParticipantAdminRow {
   nome_guerra: string;
   full_name: string | null;
   remaining_slots: number;
+}
+
+export type DejemAssignmentRole =
+  | "MEMBER"
+  | "COMMANDER"
+  | "DRIVER"
+  | "THIRD_MAN"
+  | "FOURTH_MAN"
+  | "MOTO_2"
+  | "MOTO_3";
+
+export interface DejemShiftRolesUpdatePayload {
+  assignments: { user_id: number; role: DejemAssignmentRole }[];
 }
 
 export interface DejemAdminAddParticipantPayload {

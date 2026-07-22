@@ -14,69 +14,98 @@ Não publica. Não gera Mapa Força. Não envia WhatsApp/PDF.
 |-------|-----|
 | `campaign_id` / `shift_slot_id` | escopo do turno |
 | `team_type` | `FT` \| `ROCAM` \| `APOIO` \| `ADMINISTRATIVO` |
-| `vehicle_id` | FK `vehicles` (módulo existente) |
-| `commander_id` | FK `users` |
+| `vehicle_id` | FK `vehicles` |
+| `commander_id` | FK `users` (derivado do assignment `COMMANDER`) |
+| `mission_name` | missão/empenho — **mesmo padrão da Escala Operacional** |
 | `max_members` | capacidade da equipe |
-| `status` | `DRAFT` \| `READY` (sem PUBLISHED) |
+| `status` | `DRAFT` \| `READY` |
 | `notes` | observações |
 
 ### OperationalAssignment
 
 | Campo | Uso |
 |-------|-----|
-| `credit_id` | crédito reservado (único — 1 equipe) |
-| `user_id` | policial do crédito |
-| `role` | `MEMBER` \| `COMMANDER` |
+| `credit_id` | crédito reservado (opcional — God Mode) |
+| `user_id` | policial |
+| `role` | função operacional |
 
-## Fluxo
+A função **pertence ao assignment**, nunca ao `User` nem ao `OperationalTeam`.
+
+A missão **pertence à equipe** (`mission_name`), nunca ao assignment.
+
+## Missão operacional
+
+Reutiliza integralmente a Escala Operacional:
+
+- Presets: `FT_MISSION_PRESETS` / `ROCAM_MISSION_PRESETS` (`schemas/service_scale.py` e `frontend/src/types/serviceScale.ts`)
+- Endpoint de presets: `GET /service-scales/presets/missions`
+- UI compartilhada: `MissionPresetSelect` (`frontend/src/components/service-scales/missionPresets.tsx`)
+- Texto livre via opção “Personalizado…”
+
+Exemplos de empenho (presets atuais): Tático Comando, Supervisor Tático, Força Tática, ROCAM 1–3 — além de missão customizada.
+
+Na Escala DEJEM (produção), `DejemShift.mission_name` espelha o mesmo campo.
+
+## Funções por tipo de equipe
+
+### FT
+
+| Enum | Label UI |
+|------|----------|
+| `COMMANDER` | Comandante da Equipe |
+| `DRIVER` | Motorista |
+| `THIRD_MAN` | 3º Homem |
+| `FOURTH_MAN` | 4º Homem |
+
+### ROCAM
+
+| Enum | Label UI |
+|------|----------|
+| `COMMANDER` | Comandante da Equipe |
+| `MOTO_2` | Moto 2 |
+| `MOTO_3` | Moto 3 |
+
+### Validações
+
+- Cada função exclusiva no máximo **uma vez** por equipe
+- Listas só com integrantes da própria equipe
+- God Mode e distribuição automática são equivalentes nas listas
+
+## God Mode
+
+Admin inclui policial com `user_id` **sem** `credit_id`.
+
+Após inclusão:
+
+- integra a equipe normalmente;
+- aparece em Comandante / Motorista / 3º / 4º / Moto 2 / Moto 3;
+- crédito **não** é exigido.
+
+## Escala DEJEM (produção) — UI
+
+`DejemShiftDayDrawer` monta a equipe no padrão Escala Operacional:
 
 ```
-ShiftSlot (reservas)
-    ↓ Credits APPROVED com shift_slot_id
-OperationalTeam(s) no mesmo slot
-    ↓ OperationalAssignment(credit_id)
-Equipe com viatura + comandante (planejamento)
+Equipe FT — {missão}
+Missão [Selecionar]
+Comandante / Motorista / 3º Homem / 4º Homem
+
+Equipe ROCAM — {missão}
+Missão [Selecionar]
+Comandante / Moto 2 / Moto 3
 ```
 
-## Regras
+Reutiliza:
 
-1. Só Credits com `shift_slot_id` no mesmo turno da equipe
-2. Credit em no máximo 1 equipe (`UNIQUE credit_id`)
-3. Capacidade: `len(members) ≤ max_members`
-4. Mesma viatura não pode estar em 2 equipes do mesmo `shift_slot`
-5. Viatura `BAIXADA` rejeitada
-6. Policial consulta só equipes em que é membro
+- `teamRolesFor` / `setRoleUser` / `emptyRoleAssignments`
+- `MissionPresetSelect` / `missionToPreset`
 
 ## APIs
 
-Base: `/operations/dejem/teams`
+`/operations/dejem/teams` — `mission_name` em create/update/response; roles via `PUT .../roles`.
 
-| Método | Path | RBAC |
-|--------|------|------|
-| GET | `/` | admin: todos; policial: suas |
-| GET | `/{id}` | admin ou membro |
-| POST | `/` | admin |
-| PUT | `/{id}` | admin |
-| DELETE | `/{id}` | admin |
-| POST | `/{id}/members` | admin |
-| DELETE | `/{id}/members/{member_id}` | admin |
-| PUT | `/{id}/vehicle` | admin |
-| PUT | `/{id}/commander` | admin |
+Escala DEJEM: `mission_name` em create/update de shift; `PUT /dejem/shifts/{id}/roles`.
 
-## Auditoria
+## Compatibilidade
 
-`dejem_operational_team_audits`: actor, action, team, user, credit, vehicle, commander, details.
-
-Ações: `CREATE` | `UPDATE` | `DELETE` | `ADD_MEMBER` | `REMOVE_MEMBER` | `SET_VEHICLE` | `SET_COMMANDER`.
-
-## Decisões
-
-- Reusa `vehicles` e `users` — sem novo módulo
-- Planejamento ortogonal a C7/C8 (não muda status do crédito)
-- Publicação / Mapa Força / mensagens → **C10**
-
-## Limitações
-
-- Sem publicação → **C10** ([publication.md](./publication.md))
-- Sem composição automática FT/ROCAM
-- Sem documentos finais
+Não altera Campaign, Credits, ShiftSlot, Publication nem Allocation Engine.

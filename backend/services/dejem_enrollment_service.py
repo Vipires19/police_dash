@@ -42,7 +42,13 @@ from schemas.dejem import (
     DejemMyShiftCard,
     DejemParticipantAdminRow,
     DejemShiftPublic,
+    DejemShiftRolesUpdate,
 )
+from operations.dejem.models.assignment_roles import (
+    assert_role_allowed_for_team,
+    assert_roles_unique,
+)
+from operations.dejem.models.enums import AssignmentRole
 from services.dejem_service import DejemError
 from services.dejem_shift_service import _shift_to_public
 
@@ -377,6 +383,7 @@ def list_participants_admin(db: Session, shift_id: int) -> list[DejemParticipant
                 user_id=row.user_id,
                 participation_type=row.participation_type,  # type: ignore[arg-type]
                 status=row.status,  # type: ignore[arg-type]
+                role=getattr(row, "role", AssignmentRole.MEMBER),  # type: ignore[arg-type]
                 consumes_balance=row.consumes_balance,
                 created_at=row.created_at,
                 enrolled_by_id=row.enrolled_by_id,
@@ -387,6 +394,51 @@ def list_participants_admin(db: Session, shift_id: int) -> list[DejemParticipant
             )
         )
     return out
+
+
+def set_shift_roles(
+    db: Session,
+    current: User,
+    shift_id: int,
+    body: DejemShiftRolesUpdate,
+) -> list[DejemParticipantAdminRow]:
+    """Atribui funções FT/ROCAM entre os participantes da própria escala."""
+    shift_repo = DejemShiftRepository(db)
+    part_repo = DejemParticipantRepository(db)
+    shift = shift_repo.get_by_id(shift_id)
+    if not shift:
+        raise DejemError("Escala não encontrada.")
+    _assert_shift_admin_editable(shift)
+
+    active = {
+        p.user_id: p
+        for p in part_repo.list_active_by_shift(shift_id)
+    }
+    roles: list[AssignmentRole] = []
+    for item in body.assignments:
+        if item.user_id not in active:
+            raise DejemError(
+                f"Policial {item.user_id} não pertence a esta escala."
+            )
+        role = AssignmentRole(item.role.value)
+        assert_role_allowed_for_team(shift.shift_type, role, error_cls=DejemError)
+        roles.append(role)
+    assert_roles_unique(roles, error_cls=DejemError)
+
+    assigned = {item.user_id for item in body.assignments}
+    for user_id, row in active.items():
+        if user_id not in assigned:
+            row.role = AssignmentRole.MEMBER
+            part_repo.save_flush(row)
+
+    for item in body.assignments:
+        row = active[item.user_id]
+        row.role = AssignmentRole(item.role.value)
+        part_repo.save_flush(row)
+
+    part_repo.commit()
+    _sync_map_artifacts(db, shift, current)
+    return list_participants_admin(db, shift_id)
 
 
 def admin_add_participant(

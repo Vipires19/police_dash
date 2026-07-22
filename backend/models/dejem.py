@@ -18,6 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from database.base import Base
+from operations.dejem.models.enums import AssignmentRole
 
 
 class DejemMonthStatus(str, enum.Enum):
@@ -198,6 +199,7 @@ class DejemShift(Base):
         index=True,
     )
     capacity: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    mission_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     status: Mapped[DejemShiftStatus] = mapped_column(
         Enum(DejemShiftStatus, name="dejemshiftstatus", create_type=False),
         nullable=False,
@@ -291,6 +293,11 @@ class DejemParticipant(Base):
         Enum(ParticipationType, name="participationtype", create_type=False),
         nullable=False,
         default=ParticipationType.NORMAL,
+    )
+    role: Mapped[AssignmentRole] = mapped_column(
+        Enum(AssignmentRole, name="dejemassignmentrole", create_type=False),
+        nullable=False,
+        default=AssignmentRole.MEMBER,
     )
     status: Mapped[ParticipantStatus] = mapped_column(
         Enum(ParticipantStatus, name="participantstatus", create_type=False),

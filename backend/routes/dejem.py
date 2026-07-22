@@ -38,6 +38,7 @@ from schemas.dejem import (
     DejemShiftDashboard,
     DejemShiftDayDetail,
     DejemShiftPublic,
+    DejemShiftRolesUpdate,
     DejemShiftTemplateCreate,
     DejemShiftTemplatePublic,
     DejemShiftTemplateUpdate,
@@ -417,6 +418,22 @@ def list_shift_participants(
 ) -> list[DejemParticipantAdminRow]:
     try:
         return enroll_svc.list_participants_admin(db, shift_id)
+    except DejemError as e:
+        raise _http_error(e) from e
+
+
+@router.put(
+    "/shifts/{shift_id}/roles",
+    response_model=list[DejemParticipantAdminRow],
+)
+def set_shift_roles(
+    shift_id: int,
+    body: DejemShiftRolesUpdate,
+    current: User = Depends(require_dejem_shift_editor),
+    db: Session = Depends(get_db),
+) -> list[DejemParticipantAdminRow]:
+    try:
+        return enroll_svc.set_shift_roles(db, current, shift_id, body)
     except DejemError as e:
         raise _http_error(e) from e
 

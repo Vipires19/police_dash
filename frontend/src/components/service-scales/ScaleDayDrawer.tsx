@@ -4,8 +4,6 @@ import { ScaleExportModal } from "./ScaleExportModal";
 import { ScalePublishPreviewModal } from "./ScalePublishPreviewModal";
 import { ScaleVersionsPanel } from "./ScaleVersionsPanel";
 import {
-  FT_MISSION_PRESETS,
-  ROCAM_MISSION_PRESETS,
   sortMembersByRole,
   teamRolesFor,
   type ScaleDayDetailResponse,
@@ -36,6 +34,7 @@ import {
   type RoleAssignments,
   type RoleBikes,
 } from "./teamRoles";
+import { MissionPresetSelect, missionToPreset, resolveMissionName } from "./missionPresets";
 
 type PlatoonFilter = "ALL" | OrganizationalUnit;
 
@@ -108,12 +107,6 @@ function toLocalInputFromDate(isoDate: string, hour: number): string {
   d.setHours(hour, 0, 0, 0);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function missionToPreset(mission: string, modality: ScaleModality): { preset: string; custom: string } {
-  const presets = modality === "FT" ? FT_MISSION_PRESETS : ROCAM_MISSION_PRESETS;
-  if ((presets as readonly string[]).includes(mission)) return { preset: mission, custom: "" };
-  return { preset: "__custom__", custom: mission };
 }
 
 type TeamFormPayload = {
@@ -240,7 +233,7 @@ export function ScaleDayDrawer({
     [detail?.staff_roster, usage],
   );
 
-  const missionName = missionPreset === "__custom__" ? missionCustom.trim() : missionPreset;
+  const missionName = resolveMissionName(missionPreset, missionCustom);
   const isEdit = editingTeam !== null;
 
   const resetForm = () => {
@@ -527,27 +520,14 @@ export function ScaleDayDrawer({
                     ))}
                   </select>
                 )}
-                <select
-                  value={missionPreset}
-                  onChange={(e) => setMissionPreset(e.target.value)}
-                  className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm"
-                >
-                  <option value="">Empenho</option>
-                  {(modality === "FT" ? FT_MISSION_PRESETS : ROCAM_MISSION_PRESETS).map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                  <option value="__custom__">Personalizado…</option>
-                </select>
-                {missionPreset === "__custom__" && (
-                  <input
-                    value={missionCustom}
-                    onChange={(e) => setMissionCustom(e.target.value)}
-                    placeholder="Empenho customizado"
-                    className="w-full rounded border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm"
-                  />
-                )}
+                <MissionPresetSelect
+                  modality={modality}
+                  preset={missionPreset}
+                  custom={missionCustom}
+                  onPresetChange={setMissionPreset}
+                  onCustomChange={setMissionCustom}
+                  label="Empenho"
+                />
                 <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}

@@ -26,6 +26,7 @@ import type {
   DejemEnrollmentResult,
   DejemMyDayDetail,
   DejemParticipantAdminRow,
+  DejemShiftRolesUpdatePayload,
   DejemOfferEvent,
   DejemOfferEventCreatePayload,
   DejemOfferAvailable,
@@ -371,6 +372,18 @@ export async function removeDejemShiftParticipant(
     `/dejem/shifts/${shiftId}/participants/${userId}`,
     { method: "DELETE", token },
   );
+}
+
+export async function setDejemShiftRoles(
+  token: string,
+  shiftId: number,
+  payload: DejemShiftRolesUpdatePayload,
+): Promise<DejemParticipantAdminRow[]> {
+  return apiFetch<DejemParticipantAdminRow[]>(`/dejem/shifts/${shiftId}/roles`, {
+    method: "PUT",
+    token,
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function closeDejemShift(

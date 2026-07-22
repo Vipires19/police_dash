@@ -11,6 +11,7 @@ import type {
   DejemShiftTemplatePublic,
   DejemShiftType,
   DejemShiftUpdatePayload,
+  DejemAssignmentRole,
   ParticipationType,
 } from "@/types/dejem";
 import {
@@ -19,6 +20,20 @@ import {
   dejemTimeInputValue,
   formatDejemTime,
 } from "@/types/dejem";
+import {
+  assignmentRoleLabel,
+  dejemShiftModality,
+  dejemTeamRoleLabels,
+  membersToDejemRoleAssignments,
+  roleAssignmentsToPayload,
+  setRoleUser,
+  type RoleAssignments,
+} from "./dejemTeamRoles";
+import {
+  MissionPresetSelect,
+  missionToPreset,
+  resolveMissionName,
+} from "@/components/service-scales/missionPresets";
 import { dejemShiftStatusBadgeClass, dejemShiftStatusLabel } from "./statusStyles";
 
 function formatHeaderDate(iso: string): string {
@@ -80,6 +95,10 @@ interface Props {
   ) => Promise<void>;
   onRemoveParticipant: (shiftId: number, userId: number) => Promise<void>;
   onCloseShift: (shiftId: number) => Promise<void>;
+  onSetRoles?: (
+    shiftId: number,
+    assignments: { user_id: number; role: DejemAssignmentRole }[],
+  ) => Promise<void>;
   remainingOpeningSlots?: number | null;
 }
 
@@ -102,6 +121,7 @@ export function DejemShiftDayDrawer({
   onAddParticipant,
   onRemoveParticipant,
   onCloseShift,
+  onSetRoles,
   remainingOpeningSlots = null,
 }: Props) {
   const [creating, setCreating] = useState(false);
@@ -441,9 +461,8 @@ export function DejemShiftDayDrawer({
                                     {p.patente} {p.nome_guerra}
                                   </p>
                                   <p className="mt-0.5 text-zinc-500">
-                                    {PARTICIPATION_TYPE_LABELS[p.participation_type]} · saldo{" "}
-                                    {p.remaining_slots} ·{" "}
-                                    {new Date(p.created_at).toLocaleString("pt-BR")}
+                                    {PARTICIPATION_TYPE_LABELS[p.participation_type]} ·{" "}
+                                    {assignmentRoleLabel(p.role)} · saldo {p.remaining_slots}
                                   </p>
                                 </div>
                                 {canEdit && isAdminEditable(s.status) && (
@@ -469,6 +488,22 @@ export function DejemShiftDayDrawer({
                               </li>
                             ))}
                           </ul>
+                        )}
+
+                        {participants.length > 0 && dejemTeamRoleLabels(s.shift_type).length > 0 && (
+                          <DejemShiftRolePanel
+                            shift={s}
+                            participants={participants}
+                            canEdit={
+                              canEdit &&
+                              isAdminEditable(s.status) &&
+                              Boolean(onSetRoles) &&
+                              Boolean(onUpdate)
+                            }
+                            busy={busy}
+                            onSetRoles={onSetRoles}
+                            onUpdate={onUpdate}
+                          />
                         )}
 
                         {canEdit && isAdminEditable(s.status) && (
@@ -586,6 +621,119 @@ export function DejemShiftDayDrawer({
         </footer>
       )}
     </aside>
+  );
+}
+
+function DejemShiftRolePanel({
+  shift,
+  participants,
+  canEdit,
+  busy,
+  onSetRoles,
+  onUpdate,
+}: {
+  shift: DejemShiftPublic;
+  participants: DejemParticipantAdminRow[];
+  canEdit: boolean;
+  busy: boolean;
+  onSetRoles?: (
+    shiftId: number,
+    assignments: { user_id: number; role: DejemAssignmentRole }[],
+  ) => Promise<void>;
+  onUpdate: (shiftId: number, payload: DejemShiftUpdatePayload) => Promise<void>;
+}) {
+  const modality = dejemShiftModality(shift.shift_type);
+  const roleLabels = dejemTeamRoleLabels(shift.shift_type);
+  const [assignments, setAssignments] = useState<RoleAssignments>(() =>
+    membersToDejemRoleAssignments(shift.shift_type, participants),
+  );
+  const initialMission = missionToPreset(shift.mission_name ?? "", modality ?? "FT");
+  const [missionPreset, setMissionPreset] = useState(initialMission.preset);
+  const [missionCustom, setMissionCustom] = useState(initialMission.custom);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    setAssignments(membersToDejemRoleAssignments(shift.shift_type, participants));
+    const m = missionToPreset(shift.mission_name ?? "", modality ?? "FT");
+    setMissionPreset(m.preset);
+    setMissionCustom(m.custom);
+    setDirty(false);
+  }, [shift.id, shift.shift_type, shift.mission_name, participants, modality]);
+
+  if (!modality || roleLabels.length === 0) return null;
+
+  const title =
+    shift.shift_type === "ROCAM"
+      ? `Equipe ROCAM${shift.mission_name ? ` — ${shift.mission_name}` : ""}`
+      : `Equipe FT${shift.mission_name ? ` — ${shift.mission_name}` : ""}`;
+
+  const save = async () => {
+    const mission_name = resolveMissionName(missionPreset, missionCustom) || null;
+    await onUpdate(shift.id, { mission_name });
+    if (onSetRoles) {
+      await onSetRoles(shift.id, roleAssignmentsToPayload(assignments));
+    }
+    setDirty(false);
+  };
+
+  return (
+    <div className="space-y-3 rounded-lg border border-zinc-800 bg-zinc-950/40 px-3 py-3">
+      <p className="text-xs font-semibold uppercase tracking-wider text-zinc-300">{title}</p>
+      <MissionPresetSelect
+        modality={modality}
+        preset={missionPreset}
+        custom={missionCustom}
+        disabled={!canEdit || busy}
+        onPresetChange={(v) => {
+          setMissionPreset(v);
+          setDirty(true);
+        }}
+        onCustomChange={(v) => {
+          setMissionCustom(v);
+          setDirty(true);
+        }}
+      />
+      <div className="space-y-3">
+        {roleLabels.map((role) => {
+          const currentUid = assignments[role];
+          return (
+            <div key={role} className="space-y-1.5">
+              <label className="block text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+                {role}
+              </label>
+              <select
+                value={currentUid === "" || currentUid == null ? "" : String(currentUid)}
+                disabled={!canEdit || busy}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const nextUid = raw ? Number(raw) : "";
+                  setAssignments((prev) => setRoleUser(prev, role, nextUid));
+                  setDirty(true);
+                }}
+                className="w-full rounded border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-zinc-100 disabled:opacity-60"
+              >
+                <option value="">Selecionar</option>
+                {participants.map((p) => (
+                  <option key={p.user_id} value={p.user_id}>
+                    {p.patente} {p.nome_guerra}
+                  </option>
+                ))}
+              </select>
+            </div>
+          );
+        })}
+      </div>
+      {canEdit && (
+        <button
+          type="button"
+          disabled={busy || !dirty}
+          onClick={() => void save()}
+          className="w-full rounded-md bg-zinc-100 px-2 py-1.5 text-xs font-medium text-zinc-950 hover:bg-white disabled:opacity-50"
+        >
+          Salvar equipe
+        </button>
+      )}
+    </div>
   );
 }
 

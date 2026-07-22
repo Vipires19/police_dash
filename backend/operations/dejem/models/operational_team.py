@@ -64,6 +64,7 @@ class OperationalTeam(Base):
         index=True,
     )
     max_members: Mapped[int] = mapped_column(Integer, nullable=False, default=4)
+    mission_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -107,9 +108,9 @@ class OperationalAssignment(Base):
         nullable=False,
         index=True,
     )
-    credit_id: Mapped[int] = mapped_column(
+    credit_id: Mapped[int | None] = mapped_column(
         ForeignKey("dejem_credits.id", ondelete="CASCADE"),
-        nullable=False,
+        nullable=True,
         index=True,
     )
     user_id: Mapped[int] = mapped_column(
@@ -133,7 +134,7 @@ class OperationalAssignment(Base):
         back_populates="assignments",
         foreign_keys=[operational_team_id],
     )
-    credit: Mapped[Credit] = relationship("Credit", foreign_keys=[credit_id])
+    credit: Mapped[Credit | None] = relationship("Credit", foreign_keys=[credit_id])
     user: Mapped[User] = relationship("User", foreign_keys=[user_id])
 
 

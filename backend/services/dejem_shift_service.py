@@ -78,6 +78,7 @@ def _shift_to_public(row: DejemShift, filled: int) -> DejemShiftPublic:
         status=row.status,  # type: ignore[arg-type]
         vehicle_id=row.vehicle_id,
         vehicle_prefixo=vehicle.prefixo if vehicle else None,
+        mission_name=getattr(row, "mission_name", None),
         created_by_id=row.created_by_id,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -200,6 +201,7 @@ def create_shift(db: Session, current: User, body: DejemShiftCreate) -> DejemShi
         capacity=body.capacity,
         status=DejemShiftStatus(body.status.value),
         vehicle_id=_resolve_vehicle_id(db, body.vehicle_id),
+        mission_name=(body.mission_name.strip() if body.mission_name else None),
         created_by_id=current.id,
     )
     saved = shift_repo.add(row)
@@ -293,6 +295,10 @@ def update_shift(
     row.shift_type = new_type
     row.capacity = new_capacity
     row.status = new_status
+
+    if "mission_name" in payload:
+        raw = body.mission_name
+        row.mission_name = raw.strip() if raw else None
 
     if "vehicle_id" in payload:
         # None explícito remove a vinculação; sem exclusividade com outras equipes.
